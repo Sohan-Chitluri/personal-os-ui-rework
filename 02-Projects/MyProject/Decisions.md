@@ -1,0 +1,3 @@
+# MyProject Decisions
+
+## Decision Log
