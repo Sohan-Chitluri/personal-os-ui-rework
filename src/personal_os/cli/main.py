@@ -11,6 +11,7 @@ from rich.console import Console
 from personal_os.core.config import get_config
 from personal_os.core.vault import get_vault
 from personal_os.core.processor import process_entry
+from personal_os.core import links as link_service
 
 console = Console()
 
@@ -269,6 +270,53 @@ def open_project(name: str = typer.Argument(..., help="Project name")):
     for fname, fpath in files.items():
         status = "✅" if fpath.exists() else "⭕"
         console.print(f"  {status} {fname}: [dim]{fpath}[/dim]")
+
+
+# ========== Knowledge Graph ==========
+
+@app.command()
+def links(
+    action: str = typer.Argument("suggest", help="suggest | related | orphans | hub"),
+    query: str = typer.Argument("", help="Topic/query (for suggest/related/hub)"),
+    limit: int = typer.Option(10, "--limit", "-l", help="Max results"),
+):
+    """Knowledge-graph operations on the vault (suggest/related/orphans/hub)."""
+    import json
+
+    try:
+        if action == "suggest":
+            if not query:
+                console.print("[red]Provide a query: pos links suggest \"topic\"[/red]")
+                raise typer.Exit(1)
+            results = link_service.suggest_links(query, limit=limit)
+        elif action == "related":
+            if not query:
+                console.print("[red]Provide a query: pos links related \"topic\"[/red]")
+                raise typer.Exit(1)
+            results = link_service.find_related(query, limit=limit)
+        elif action == "orphans":
+            results = link_service.find_orphans(limit=limit)
+        elif action == "hub":
+            if not query:
+                console.print("[red]Provide a topic: pos links hub \"topic\"[/red]")
+                raise typer.Exit(1)
+            hub_path = link_service.create_hub(query)
+            console.print(f"✅ Created hub: [cyan]{hub_path}[/cyan]")
+            return
+        else:
+            console.print(f"[red]Unknown action: {action}[/red]")
+            raise typer.Exit(1)
+    except typer.Exit:
+        raise
+    except Exception as e:
+        console.print(f"[red]Link operation failed: {e}[/red]")
+        raise typer.Exit(1)
+
+    if not results:
+        console.print("📭 No results.")
+        return
+
+    console.print(json.dumps(results, indent=2, default=str))
 
 
 # ========== Maintenance ==========
