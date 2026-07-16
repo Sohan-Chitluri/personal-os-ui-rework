@@ -1,0 +1,17 @@
+#!/usr/bin/env python3
+"""
+Personal OS - Entry point wrapper.
+This replaces the old /home/peskybird/projects/personal-os/Scripts/personal-os
+"""
+import sys
+import os
+from pathlib import Path
+
+# Ensure src is in path
+src_path = Path(__file__).parent / "src"
+sys.path.insert(0, str(src_path))
+
+from personal_os.cli.main import app
+
+if __name__ == "__main__":
+    app()

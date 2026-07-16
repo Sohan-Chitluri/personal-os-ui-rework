@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+
+# Personal OS runtime artifacts
+personal-os-audio/
+search_index/
+*.tmp
+
+# Editor / OS
+.DS_Store
+*~

@@ -1,3 +1,0 @@
-# TestProject Progress
-
-## Progress Log

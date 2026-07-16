@@ -1,3 +1,0 @@
-# TestProject Decisions
-
-## Decision Log

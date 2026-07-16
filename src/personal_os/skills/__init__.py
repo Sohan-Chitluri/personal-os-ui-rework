@@ -1,0 +1,1 @@
+"""Skills package - refactored from .hermes/skills."""

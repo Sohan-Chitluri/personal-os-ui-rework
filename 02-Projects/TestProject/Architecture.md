@@ -1,3 +1,0 @@
-# TestProject Architecture
-
-## Decision Log
