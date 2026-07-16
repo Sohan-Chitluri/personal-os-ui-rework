@@ -12,6 +12,7 @@ from personal_os.core.config import get_config
 from personal_os.core.vault import get_vault
 from personal_os.core.processor import process_entry
 from personal_os.core import links as link_service
+from personal_os.core import weekly_review as review_service
 
 console = Console()
 
@@ -317,6 +318,26 @@ def links(
         return
 
     console.print(json.dumps(results, indent=2, default=str))
+
+
+# ========== Weekly Review ==========
+
+@app.command()
+def weekly_review():
+    """Generate the weekly review from the vault (overwrites same week's file)."""
+    try:
+        path = review_service.generate_review()
+        console.print(f"✅ Weekly review generated: [cyan]{path.name}[/cyan]")
+        console.print(f"   [dim]{path}[/dim]")
+    except Exception as e:
+        console.print(f"[red]Review generation failed: {e}[/red]")
+        raise typer.Exit(1)
+
+
+@app.command("review")
+def review_alias():
+    """Alias for 'weekly-review'."""
+    weekly_review()
 
 
 # ========== Maintenance ==========
