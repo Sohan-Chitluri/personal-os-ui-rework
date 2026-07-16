@@ -66,17 +66,18 @@ class KnowledgeExtractor:
             ],
         }
         
-        # Project aliases for fuzzy matching
+        # Project aliases for fuzzy matching (alias -> canonical project name)
+        # Real project names are also matched below as a fallback.
         self.project_aliases = {
-            "maestro": "test-project",
-            "router": "test-project",
-            "drone": "test-project",
-            "blindguard": "test-project",
-            "vlsi": "test-project",
-            "verilog": "test-project",
-            "fpga": "test-project",
-            "namo": "test-project",
-            "team namo": "test-project",
+            "maestro": "Maestro",
+            "router": "Maestro",
+            "drone": "Drone",
+            "blindguard": "BlindGuard",
+            "vlsi": "VLSI",
+            "verilog": "VLSI",
+            "fpga": "FPGA",
+            "namo": "Team-NAMO",
+            "team namo": "Team-NAMO",
         }
 
     def _identify_project(self, text: str) -> Optional[str]:
