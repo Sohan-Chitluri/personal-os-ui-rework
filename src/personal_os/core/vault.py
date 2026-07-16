@@ -56,27 +56,15 @@ class VaultManager:
         self._create_default_templates()
     
     def _create_default_templates(self):
-        """Create default template files."""
+        """Ensure default template files exist.
+
+        The canonical project template ships with the repo at
+        Templates/project-template.md (single source of truth, rendered by
+        create_project). Daily/meeting templates are retained for future use
+        but are not yet wired into the application (TODO: migrate when the
+        journal/meeting capture features are integrated).
+        """
         templates = {
-            "project-template.md": """# {{project_name}}
-
-## Overview
-{{description}}
-
-## Status
-- **Phase**: {{phase}}
-- **Health**: {{health}}
-- **Last Updated**: {{date}}
-
-## Links
-- [[Architecture]]
-- [[Tasks]]
-- [[Progress]]
-- [[Decisions]]
-
----
-*Created: {{date}}*
-""",
             "daily-template.md": """# {{date}}
 
 ## Focus
@@ -109,11 +97,31 @@ class VaultManager:
 *Source: {{source}}*
 """,
         }
-        
+
         for name, content in templates.items():
             path = self.config.templates_dir / name
             if not path.exists():
                 path.write_text(content)
+
+    def _project_readme_template(self) -> str:
+        """Return the canonical project README template.
+
+        Single source of truth is Templates/project-template.md. Falls back to a
+        minimal inline template only if the file is missing (e.g. fresh vault
+        where Templates/ was not seeded), so create_project never crashes.
+        """
+        template_path = self.config.templates_dir / "project-template.md"
+        if template_path.exists():
+            return self.read_file(template_path)
+        return (
+            "# {{project_name}}\n\n"
+            "## Overview\n{{description}}\n\n"
+            "## Status\n"
+            "- **Phase**: {{phase}}\n"
+            "- **Health**: {{health}}\n"
+            "- **Last Updated**: {{date}}\n\n"
+            "---\n*Created: {{date}}*\n"
+        )
     
     # ========== Atomic File Operations ==========
     
@@ -306,17 +314,17 @@ class VaultManager:
         }
     
     def create_project(self, name: str, description: str = "", phase: str = "planning") -> Path:
-        """Create new project from template."""
+        """Create new project from the canonical template."""
         project_dir = self.config.projects_dir / name
         project_dir.mkdir(parents=True, exist_ok=False)
-        
-        template = self.read_file(self.config.templates_dir / "project-template.md")
-        content = template.replace("{{project_name}}", name)\
-                         .replace("{{description}}", description)\
-                         .replace("{{phase}}", phase)\
-                         .replace("{{health}}", "green")\
+
+        template = self._project_readme_template()
+        content = template.replace("{{project_name}}", name) \
+                         .replace("{{description}}", description) \
+                         .replace("{{phase}}", phase) \
+                         .replace("{{health}}", "green") \
                          .replace("{{date}}", datetime.now().strftime('%Y-%m-%d'))
-        
+
         self.write_file(project_dir / "README.md", content)
         
         # Create standard files
