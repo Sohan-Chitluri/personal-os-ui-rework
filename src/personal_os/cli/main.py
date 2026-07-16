@@ -120,9 +120,16 @@ def search(
     file_type: Optional[str] = typer.Option(None, "--type", "-t", help="Filter by file type"),
 ):
     """Search the vault."""
-    from personal_os.skills.search import search as do_search
-    
-    results = asyncio.run(do_search(query, limit=limit, project=project, file_type=file_type))
+    from personal_os.core.search import search as do_search
+
+    # Translate --project/--type flags into core.search query syntax
+    augmented = query
+    if project:
+        augmented = f"project:{project} {augmented}"
+    if file_type:
+        augmented = f"type:{file_type} {augmented}"
+
+    results = asyncio.run(do_search(augmented, limit=limit))
     
     if not results:
         console.print(f"🔍 Search: [cyan]{query}[/cyan]\n📭 No matches found.")
