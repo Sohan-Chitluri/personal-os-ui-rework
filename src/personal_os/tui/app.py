@@ -23,6 +23,7 @@ from textual.worker import Worker, get_current_worker
 from personal_os.core.config import get_config, Config, VaultConfig
 from personal_os.core.vault import get_vault, VaultManager
 from personal_os.core.processor import process_entry, BackgroundProcessor, ProcessingResult
+from personal_os.core.capture import persist_capture, capture, CaptureReceipt
 from personal_os.core.search import search, SearchResult, SearchEngine
 from personal_os.tui.widgets.panels import (
     ProjectsPanel, TasksPanel, JournalPanel,
@@ -575,21 +576,35 @@ class PersonalOSTUI(App):
         self.query_one("#chat-history", ChatHistory).add_message(msg)
     
     async def on_entry_captured(self, event: EntryCaptured):
-        """Handle new entry from chat input."""
+        """Handle new entry from chat input.
+
+        Capture contract (v0.2): persist the raw entry to the Daily Stream
+        FIRST (durable, timestamped, committed), THEN process. A raw capture is
+        never lost even if processing fails.
+        """
         text = event.text
         source = event.source
-        
-        # Add to chat immediately
+
+        # Add to chat immediately (UI echo)
         self._add_user_message(text)
-        
-        # Process in background
+
+        # STAGE 1: persist raw capture — guaranteed before any processing.
+        receipt = persist_capture(text, source=source, vault=self.vault)
+        if not receipt.persisted:
+            self._add_assistant_message(
+                f"⚠️ Capture NOT saved ({receipt.error}). Nothing processed."
+            )
+            return
+
+        # STAGE 2: process (best-effort). Raw is already safe on disk.
         self.query_one("#status-bar", Static).update("Processing...")
-        
         try:
             result = await process_entry(text, source)
             await self._handle_processing_result(result, text)
         except Exception as e:
-            self._add_assistant_message(f"⚠️ Processing error: {e}")
+            self._add_assistant_message(
+                f"⚠️ Processing error (raw capture is safe in journal): {e}"
+            )
         finally:
             self.query_one("#status-bar", Static).update("Ready")
     

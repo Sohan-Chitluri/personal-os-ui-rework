@@ -68,20 +68,25 @@ def note(
     source: str = typer.Option("Text", "--source", "-s", help="Source type"),
 ):
     """Quick capture a note (background, no TUI)."""
+    from personal_os.core.capture import capture_and_process
+
     async def _capture():
-        vault = get_vault()
-        journal_path = vault.append_journal_entry(text, source=source)
-        console.print(f"✅ Logged to [cyan]{journal_path.name}[/cyan]")
-        
-        # Auto-process
-        result = await process_entry(text, source)
-        if result.changes_made:
+        # Capture contract: persist raw FIRST, then process.
+        receipt, result = await capture_and_process(text, source=source)
+        if not receipt.persisted:
+            console.print(f"[red]❌ Capture failed: {receipt.error}[/red]")
+            raise typer.Exit(1)
+        console.print(f"✅ Logged to [cyan]{receipt.journal_path.name}[/cyan]")
+
+        if result is None:
+            console.print("[yellow]⚠️ Processing failed (raw capture is safe)[/yellow]")
+        elif result.changes_made:
             console.print("🔄 Auto-processed:")
             for change in result.changes_made:
                 console.print(f"   {change}")
         else:
             console.print("📝 No actionable items extracted")
-    
+
     asyncio.run(_capture())
 
 
