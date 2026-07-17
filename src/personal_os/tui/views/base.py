@@ -2,34 +2,29 @@
 
 Every workspace (Today, Projects, Tasks, ...) is a WorkspaceView. The
 ViewRouter interacts with views ONLY through this contract — it never touches a
-view's internals. This lets new workspace types be added without modifying the
-router.
+view's internals. New workspace types can be added without modifying the router.
+
+A workspace composes reusable Components (Workspace -> Layout -> Panels ->
+Components) and passes them a WorkspaceContext. The router still switches
+WORKSPACES only; it knows nothing about layouts, panels, or components.
 
 Lifecycle:
     __init__(vault, config)   construct (cheap; no I/O)
     on_activate()             called each time the view becomes active
-    refresh()                 (async) reload the view's content
+    refresh_content()         (async) reload the view's content
     on_deactivate()           called when the view is replaced
-
-This milestone is architectural: concrete views are placeholders. Real content
-(markdown, dashboards, search) arrives in later milestones by overriding these
-hooks — no router changes needed.
 """
 from __future__ import annotations
 
-from typing import Optional
-
+from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.widgets import Static
 
+from personal_os.tui.context import WorkspaceContext
+
 
 class WorkspaceView(Vertical):
-    """Base class for all center-pane workspaces.
-
-    Subclasses set ``view_id`` and ``title`` and override the lifecycle hooks
-    and/or compose(). The default implementation renders a simple placeholder so
-    the framework is testable before real views exist.
-    """
+    """Base class for all center-pane workspaces."""
 
     # Identity — overridden by subclasses.
     view_id: str = "base"
@@ -43,8 +38,18 @@ class WorkspaceView(Vertical):
         self.vault = vault
         self.config = config
         self._activated = False
+        self.context = self._build_context()
 
-    def compose(self):
+    def _build_context(self) -> WorkspaceContext:
+        """Construct the WorkspaceContext this workspace hands to components."""
+        return WorkspaceContext(
+            workspace_id=self.view_id,
+            mode="explore",
+            vault=self.vault,
+            config=self.config,
+        )
+
+    def compose(self) -> ComposeResult:
         yield Static(self._placeholder_text(), classes="workspace-placeholder")
 
     def _placeholder_text(self) -> str:

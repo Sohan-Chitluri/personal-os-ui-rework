@@ -7,11 +7,7 @@ navigation state. Intentionally no real content here.
 from __future__ import annotations
 
 from personal_os.tui.views.base import WorkspaceView
-
-
-class TodayView(WorkspaceView):
-    view_id = "today"
-    title = "Today"
+from personal_os.tui.views.today import TodayView
 
 
 class ProjectsView(WorkspaceView):
