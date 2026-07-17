@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
 Personal OS - Entry point wrapper.
-This replaces the old /home/peskybird/projects/personal-os/Scripts/personal-os
 """
 import sys
 import os
