@@ -24,17 +24,28 @@ class VaultManager:
         """Initialize git repo if not exists."""
         try:
             self._repo = git.Repo(self.config.root)
+            # Existing repository: assume already set up; leave its content alone.
+            return
         except (git.InvalidGitRepositoryError, git.NoSuchPathError):
             self.config.root.mkdir(parents=True, exist_ok=True)
             self._repo = git.Repo.init(self.config.root)
-            # Create initial commit if empty
+
+        # Fresh repo: build the standard directory structure and commit it.
+        # Detecting "has commits" safely matters: iter_commits() raises on a
+        # repo with no commits (GitCommandError or ValueError depending on the
+        # GitPython version), so default to False on any error.
+        try:
+            has_commits = bool(list(self._repo.iter_commits()))
+        except Exception:
+            has_commits = False
+
+        if not has_commits:
+            self._create_initial_structure()
             try:
-                if not list(self._repo.iter_commits()):
-                    self._create_initial_structure()
-                    self._repo.index.add(["."])
-                    self._repo.index.commit("Initial Personal OS vault structure")
+                self._repo.index.add(["."])
+                self._repo.index.commit("Initial Personal OS vault structure")
             except (ValueError, git.GitCommandError):
-                # Repo is empty or has no commits yet - that's fine
+                # Commit may fail (e.g. nothing staged); structure already exists.
                 pass
     
     def _create_initial_structure(self):
