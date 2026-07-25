@@ -17,3 +17,5 @@
 - [ ] **2026-07-25**: work on project vortex need to make a list of items i have to take
 
 - [ ] **2026-07-25**: make the list of items for project vortex and need to meet lecturer in coming monday
+
+- [ ] **2026-07-25**: meet a lecturer tommorow regarding water managment
