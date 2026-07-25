@@ -9,3 +9,5 @@
 - [ ] **2026-07-25**: complete a leetcode sum by today
 
 - [ ] **2026-07-25**: make the list of components for project vortex and need to meet with a lecturer regarding it coming monday
+
+- [ ] **2026-07-25**: make water resource managment course project
