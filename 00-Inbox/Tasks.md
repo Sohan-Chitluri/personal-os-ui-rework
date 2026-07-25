@@ -11,3 +11,5 @@
 - [ ] **2026-07-25**: make the list of components for project vortex and need to meet with a lecturer regarding it coming monday
 
 - [ ] **2026-07-25**: make water resource managment course project
+
+- [ ] **2026-07-25**: make water resoource management project
