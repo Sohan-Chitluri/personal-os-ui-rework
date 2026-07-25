@@ -13,3 +13,5 @@
 - [ ] **2026-07-25**: make water resource managment course project
 
 - [ ] **2026-07-25**: make water resoource management project
+
+- [ ] **2026-07-25**: work on project vortex need to make a list of items i have to take
