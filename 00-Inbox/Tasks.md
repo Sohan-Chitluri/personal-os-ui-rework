@@ -19,3 +19,5 @@
 - [ ] **2026-07-25**: make the list of items for project vortex and need to meet lecturer in coming monday
 
 - [ ] **2026-07-25**: meet a lecturer tommorow regarding water managment
+
+- [ ] **2026-07-27**: meet soumya sir regarding the patent process
