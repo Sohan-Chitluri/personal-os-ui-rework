@@ -21,3 +21,5 @@
 - [ ] **2026-07-25**: meet a lecturer tommorow regarding water managment
 
 - [ ] **2026-07-27**: meet soumya sir regarding the patent process
+
+- [ ] **2026-07-27**: prepare asic report
