@@ -23,3 +23,5 @@
 - [ ] **2026-07-27**: meet soumya sir regarding the patent process
 
 - [ ] **2026-07-27**: prepare asic report
+
+- [ ] **2026-07-27**: make list of items for project vortex
