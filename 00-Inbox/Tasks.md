@@ -25,3 +25,5 @@
 - [ ] **2026-07-27**: prepare asic report
 
 - [ ] **2026-07-27**: make list of items for project vortex
+
+- [ ] **2026-07-28**: prepare rov for display
