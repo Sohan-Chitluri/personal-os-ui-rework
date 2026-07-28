@@ -27,3 +27,5 @@
 - [ ] **2026-07-27**: make list of items for project vortex
 
 - [ ] **2026-07-28**: prepare rov for display
+
+- [ ] **2026-07-28**: complete in 2 days that is coming thursday
