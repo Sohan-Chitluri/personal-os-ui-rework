@@ -29,3 +29,5 @@
 - [ ] **2026-07-28**: prepare rov for display
 
 - [ ] **2026-07-28**: complete in 2 days that is coming thursday
+
+- [ ] **2026-07-28**: make a list of components for it
