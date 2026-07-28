@@ -31,3 +31,5 @@
 - [ ] **2026-07-28**: complete in 2 days that is coming thursday
 
 - [ ] **2026-07-28**: make a list of components for it
+
+- [ ] **2026-07-28**: review the dashboard implementation for Personal OS
