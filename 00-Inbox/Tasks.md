@@ -33,3 +33,5 @@
 - [ ] **2026-07-28**: make a list of components for it
 
 - [ ] **2026-07-28**: review the dashboard implementation for Personal OS
+
+- [ ] **2026-07-30**: get done
