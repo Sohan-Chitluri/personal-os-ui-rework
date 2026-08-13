@@ -37,3 +37,5 @@
 - [ ] **2026-07-30**: get done
 
 - [ ] **2026-08-13**: fix the auth module
+
+- [ ] **2026-08-13**: complete cad for ic design portion for exam by today
