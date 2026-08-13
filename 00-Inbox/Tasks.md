@@ -35,3 +35,5 @@
 - [ ] **2026-07-28**: review the dashboard implementation for Personal OS
 
 - [ ] **2026-07-30**: get done
+
+- [ ] **2026-08-13**: fix the auth module
