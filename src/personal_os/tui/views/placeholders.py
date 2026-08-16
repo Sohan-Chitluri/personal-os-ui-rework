@@ -8,46 +8,70 @@ from __future__ import annotations
 
 from personal_os.tui.views.base import WorkspaceView
 from personal_os.tui.views.today import TodayView
-
-
-class ProjectsView(WorkspaceView):
-    view_id = "projects"
-    title = "Projects"
-
-
-class TasksView(WorkspaceView):
-    view_id = "tasks"
-    title = "Tasks"
-
-
-class JournalView(WorkspaceView):
-    view_id = "journal"
-    title = "Journal"
+from personal_os.tui.views.tasks import TasksView  # real implementation — W1
+from personal_os.tui.views.projects import ProjectsView
+from personal_os.tui.views.journal import JournalView
+from personal_os.tui.views.search import SearchView
 
 
 class KnowledgeView(WorkspaceView):
     view_id = "knowledge"
     title = "Knowledge"
 
-
-class SearchView(WorkspaceView):
-    view_id = "search"
-    title = "Search"
+    def compose(self):
+        from textual.app import ComposeResult
+        from textual.widgets import Static
+        yield Static(
+            f"[bold #a78bfa]{self.title}[/]\n\n"
+            f"[dim]Learned concepts, skills progress, and study notes[/]\n\n"
+            f"[dim]· Planned for Milestone 2[/]",
+            classes="workspace-placeholder"
+        )
 
 
 class ReviewsView(WorkspaceView):
     view_id = "reviews"
     title = "Reviews"
 
+    def compose(self):
+        from textual.app import ComposeResult
+        from textual.widgets import Static
+        yield Static(
+            f"[bold #a78bfa]{self.title}[/]\n\n"
+            f"[dim]Weekly and monthly reviews, retrospectives[/]\n\n"
+            f"[dim]· Planned for Milestone 2[/]",
+            classes="workspace-placeholder"
+        )
+
 
 class FavoritesView(WorkspaceView):
     view_id = "favorites"
     title = "Favorites"
 
+    def compose(self):
+        from textual.app import ComposeResult
+        from textual.widgets import Static
+        yield Static(
+            f"[bold #a78bfa]{self.title}[/]\n\n"
+            f"[dim]Pinned notes, bookmarked captures, quick-access items[/]\n\n"
+            f"[dim]· Planned for Milestone 2[/]",
+            classes="workspace-placeholder"
+        )
+
 
 class SettingsView(WorkspaceView):
     view_id = "settings"
     title = "Settings"
+
+    def compose(self):
+        from textual.app import ComposeResult
+        from textual.widgets import Static
+        yield Static(
+            f"[bold #a78bfa]{self.title}[/]\n\n"
+            f"[dim]Configuration, vault path, model settings, keybindings[/]\n\n"
+            f"[dim]· Planned for Milestone 2[/]",
+            classes="workspace-placeholder"
+        )
 
 
 # Registry: view_id -> class. The router builds instances from this.

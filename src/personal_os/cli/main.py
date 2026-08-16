@@ -9,7 +9,7 @@ import typer
 from rich.console import Console
 
 from personal_os.core.config import get_config
-from personal_os.core.vault import get_vault
+from personal_os.core.vault import get_vault, VaultManager
 from personal_os.core.processor import process_entry
 from personal_os.core import links as link_service
 from personal_os.core import weekly_review as review_service
@@ -387,7 +387,7 @@ def init(
     if path:
         config.vault.root = path.expanduser()
     
-    vault = get_vault(config.vault)
+    vault = VaultManager(config.vault)
     config.save()
     
     console.print(f"✅ Personal OS initialized at [cyan]{config.vault.root}[/cyan]")

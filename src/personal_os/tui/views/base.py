@@ -8,11 +8,8 @@ A workspace composes reusable Components (Workspace -> Layout -> Panels ->
 Components) and passes them a WorkspaceContext. The router still switches
 WORKSPACES only; it knows nothing about layouts, panels, or components.
 
-Lifecycle:
-    __init__(vault, config)   construct (cheap; no I/O)
-    on_activate()             called each time the view becomes active
-    refresh_content()         (async) reload the view's content
-    on_deactivate()           called when the view is replaced
+Milestone 3.5: View receives AppServices and gets its WorkspaceContext from
+the router via ViewRouter.show(). The view no longer builds its own context.
 """
 from __future__ import annotations
 
@@ -21,6 +18,8 @@ from textual.containers import Vertical
 from textual.widgets import Static
 
 from personal_os.tui.context import WorkspaceContext
+from personal_os.tui.services import AppServices
+from typing import Optional
 
 
 class WorkspaceView(Vertical):
@@ -32,22 +31,14 @@ class WorkspaceView(Vertical):
 
     DEFAULT_CLASSES = "workspace-view"
 
-    def __init__(self, vault=None, config=None, **kwargs):
+    def __init__(self, services: AppServices, **kwargs):
         kwargs.setdefault("classes", self.DEFAULT_CLASSES)
         super().__init__(**kwargs)
-        self.vault = vault
-        self.config = config
+        self.services = services
+        self.vault = services.vault
+        self.config = services.config
+        self.context: Optional[WorkspaceContext] = None  # Set by router on show()
         self._activated = False
-        self.context = self._build_context()
-
-    def _build_context(self) -> WorkspaceContext:
-        """Construct the WorkspaceContext this workspace hands to components."""
-        return WorkspaceContext(
-            workspace_id=self.view_id,
-            mode="explore",
-            vault=self.vault,
-            config=self.config,
-        )
 
     def compose(self) -> ComposeResult:
         yield Static(self._placeholder_text(), classes="workspace-placeholder")

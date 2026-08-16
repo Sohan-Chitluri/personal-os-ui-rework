@@ -1,12 +1,14 @@
 """Vault management - atomic file operations, git integration, path resolution."""
 from __future__ import annotations
 import os
+import re
 import tempfile
 import shutil
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
+import yaml
 import git
 
 from personal_os.core.config import get_config, VaultConfig
@@ -18,6 +20,9 @@ class VaultManager:
     def __init__(self, vault_config: Optional[VaultConfig] = None):
         self.config = vault_config or get_config().vault
         self._repo: Optional[git.Repo] = None
+        self._batch_mode = False
+        self._batch_message: Optional[str] = None
+        self._batch_files: List[Path] = []  # Track files written during batch
         self._init_git()
     
     def _init_git(self):
@@ -29,7 +34,7 @@ class VaultManager:
         except (git.InvalidGitRepositoryError, git.NoSuchPathError):
             self.config.root.mkdir(parents=True, exist_ok=True)
             self._repo = git.Repo.init(self.config.root)
-
+        
         # Fresh repo: build the standard directory structure and commit it.
         # Detecting "has commits" safely matters: iter_commits() raises on a
         # repo with no commits (GitCommandError or ValueError depending on the
@@ -38,7 +43,7 @@ class VaultManager:
             has_commits = bool(list(self._repo.iter_commits()))
         except Exception:
             has_commits = False
-
+        
         if not has_commits:
             self._create_initial_structure()
             try:
@@ -68,7 +73,7 @@ class VaultManager:
     
     def _create_default_templates(self):
         """Ensure default template files exist.
-
+        
         The canonical project template ships with the repo at
         Templates/project-template.md (single source of truth, rendered by
         create_project). Daily/meeting templates are retained for future use
@@ -108,15 +113,15 @@ class VaultManager:
 *Source: {{source}}*
 """,
         }
-
+        
         for name, content in templates.items():
             path = self.config.templates_dir / name
             if not path.exists():
                 path.write_text(content)
-
+    
     def _project_readme_template(self) -> str:
         """Return the canonical project README template.
-
+        
         Single source of truth is Templates/project-template.md. Falls back to a
         minimal inline template only if the file is missing (e.g. fresh vault
         where Templates/ was not seeded), so create_project never crashes.
@@ -156,16 +161,68 @@ class VaultManager:
                 temp_path.unlink(missing_ok=True)
                 raise
     
+    # ========== Batch Commit API ==========
+    
+    def begin_batch(self, message: str = "Batch update") -> None:
+        """Begin a batch of vault writes that will be committed together.
+        
+        While in batch mode, write_file/append_file will stage changes
+        but not commit them until commit_batch() is called.
+        
+        Journal capture writes (persist-first) should NOT use batch mode.
+        This is for processing-stage mutations only.
+        """
+        if self._batch_mode:
+            raise RuntimeError("Batch already in progress; call commit_batch() or rollback_batch() first")
+        self._batch_mode = True
+        self._batch_message = message
+        self._batch_files = []  # Reset batch file tracking
+    
+    def commit_batch(self) -> None:
+        """Commit all staged changes from the current batch."""
+        if not self._batch_mode:
+            raise RuntimeError("No batch in progress; call begin_batch() first")
+        if self._repo and self._repo.index.diff("HEAD"):
+            self._repo.index.commit(self._batch_message or "Batch update")
+        self._batch_mode = False
+        self._batch_message = None
+    
+    def rollback_batch(self) -> None:
+        """Discard all staged changes from the current batch."""
+        if not self._batch_mode:
+            raise RuntimeError("No batch in progress; call begin_batch() first")
+        if self._repo:
+            # Unstage all files that were staged during this batch
+            # by resetting the index to HEAD (but only if there are commits)
+            try:
+                self._repo.index.reset()
+            except git.GitCommandError:
+                # No commits yet (empty repo) - just unstage everything
+                self._repo.git.reset()
+        # Also remove any files that were written during this batch
+        # by using the tracked file list
+        for file_path in self._batch_files:
+            if file_path.exists():
+                file_path.unlink()
+        self._batch_files = []
+        self._batch_mode = False
+        self._batch_message = None
+    
     def write_file(self, path: Path, content: str, commit: bool = True, message: str = None):
         """Write file atomically, optionally commit to git."""
         with self.atomic_write(path) as tmp:
             tmp.write_text(content)
         
         if commit and self._repo:
-            rel_path = path.relative_to(self.config.root)
-            self._repo.index.add([str(rel_path)])
-            msg = message or f"Update {rel_path}"
-            self._repo.index.commit(msg)
+            if self._batch_mode:
+                rel_path = path.relative_to(self.config.root)
+                self._repo.index.add([str(rel_path)])
+                self._batch_files.append(path)  # Track for rollback
+            else:
+                rel_path = path.relative_to(self.config.root)
+                self._repo.index.add([str(rel_path)])
+                msg = message or f"Update {rel_path}"
+                self._repo.index.commit(msg)
     
     def append_file(self, path: Path, content: str, commit: bool = True, message: str = None):
         """Append to file atomically."""
@@ -179,13 +236,21 @@ class VaultManager:
         return ""
     
     def delete_file(self, path: Path, commit: bool = True):
-        """Delete file and optionally commit."""
-        if path.exists():
-            path.unlink()
-            if commit and self._repo:
-                rel_path = path.relative_to(self.config.root)
-                self._repo.index.remove([str(rel_path)])
-                self._repo.index.commit(f"Delete {rel_path}")
+            """Delete file and optionally commit."""
+            if path.exists():
+                path.unlink()
+                if commit and self._repo:
+                    if self._batch_mode:
+                        rel_path = path.relative_to(self.config.root)
+                        self._repo.index.remove([str(rel_path)])
+                    else:
+                        rel_path = path.relative_to(self.config.root)
+                        self._repo.index.remove([str(rel_path)])
+                        self._repo.index.commit(f"Delete {rel_path}")
+                else:
+                    rel_path = path.relative_to(self.config.root)
+                    self._repo.index.remove([str(rel_path)])
+                    self._repo.index.commit(f"Delete {rel_path}")
     
     # ========== Journal Operations ==========
     
@@ -194,20 +259,77 @@ class VaultManager:
         date = date or datetime.now()
         return self.config.journal_dir / f"{date.strftime('%Y-%m-%d')}.md"
     
-    def append_journal_entry(self, entry: str, timestamp: Optional[datetime] = None, source: str = "Text") -> Path:
-        """Append entry to today's journal."""
+    def append_journal_entry(
+        self,
+        entry: str,
+        timestamp: Optional[datetime] = None,
+        source: str = "Text",
+        capture_id: Optional[str] = None,
+    ) -> Path:
+        """Append entry to today's journal.
+        
+        The raw capture text is immutable once written. The capture_id links
+        this entry to any subsequent semantic metadata block.
+        
+        This is a persist-first operation - always commits immediately,
+        even if a batch is in progress.
+        """
         path = self.get_journal_path()
         timestamp = timestamp or datetime.now()
         
-        # Ensure header exists
         if not path.exists():
             header = f"# {timestamp.strftime('%Y-%m-%d')}\n\n"
             path.write_text(header)
         
-        entry_text = f"## {timestamp.strftime('%H:%M')} - [Source: {source}]\n{entry}\n\n"
-        self.append_file(path, entry_text, commit=True, message=f"Journal entry {timestamp.strftime('%H:%M')}")
+        time_str = timestamp.strftime("%H:%M:%S")
+        cid_tag = f" [cid: {capture_id}]" if capture_id else ""
+        entry_text = f"## {time_str} - [Source: {source}]{cid_tag}\n\n{entry}\n\n"
         
+        # Journal writes are persist-first: always commit immediately
+        # even if we're in a batch (batch is for processing-stage only)
+        was_in_batch = self._batch_mode
+        if was_in_batch:
+            # Temporarily suspend batch mode for this journal write
+            self._batch_mode = False
+            try:
+                self.append_file(
+                    path, entry_text, commit=True,
+                    message=f"Journal entry {time_str}" + (f" [{capture_id[:8]}]" if capture_id else ""),
+                )
+            finally:
+                self._batch_mode = True
+        else:
+            self.append_file(
+                path, entry_text, commit=True,
+                message=f"Journal entry {time_str}" + (f" [{capture_id[:8]}]" if capture_id else ""),
+            )
         return path
+    
+    def append_semantic_block(
+        self,
+        capture_id: str,
+        items: List[Dict[str, Any]],
+        processed_at: Optional[datetime] = None,
+        date: Optional[datetime] = None,
+    ) -> None:
+        """Append a semantic interpretation block to the daily journal.
+        
+        The block is stored as a YAML comment — invisible in markdown renderers,
+        parseable by code, and associated with the capture via capture_id.
+        The raw capture section above it remains exactly as written.
+        """
+        path = self.get_journal_path(date)
+        if not path.exists():
+            return  # No journal entry to annotate
+        
+        ts = (processed_at or datetime.now()).isoformat(timespec="seconds")
+        block_data = {"processed": ts, "items": items}
+        block_yaml = yaml.dump(block_data, default_flow_style=False, allow_unicode=True)
+        block = f"\n<!-- semantic:{capture_id}\n{block_yaml}-->\n"
+        self.append_file(
+            path, block, commit=True,
+            message=f"Semantic interpretation [{capture_id[:8]}]",
+        )
     
     def get_journal_entries(self, date: Optional[datetime] = None) -> List[Dict[str, Any]]:
         """Parse journal entries for a date."""
@@ -219,19 +341,37 @@ class VaultManager:
         entries = []
         current_entry = None
         
+        _HEADER_RE = re.compile(
+            r'^## (\d{2}:\d{2}(?::\d{2})?) - \[Source: ([^\]]+)\](?:\s+\[cid:\s*([^\]]+)\])?$'
+        )
+        in_semantic_block = False
         for line in content.split('\n'):
+            # Track HTML comment blocks (semantic metadata) — skip their content.
+            if line.startswith('<!-- semantic:'):
+                in_semantic_block = True
+                continue
+            if in_semantic_block:
+                if line.strip() == '-->':
+                    in_semantic_block = False
+                continue
+            
             if line.startswith('## '):
                 if current_entry:
                     entries.append(current_entry)
-                # Parse: ## HH:MM - [Source: X]
-                parts = line[3:].split(' - [Source: ')
-                time_str = parts[0].strip()
-                source = parts[1].rstrip(']') if len(parts) > 1 else 'Unknown'
+                m = _HEADER_RE.match(line)
+                if m:
+                    time_str, source, capture_id = m.group(1), m.group(2), m.group(3)
+                else:
+                    parts = line[3:].split(' - [Source: ')
+                    time_str = parts[0].strip()
+                    source = parts[1].rstrip(']') if len(parts) > 1 else 'Unknown'
+                    capture_id = None
                 current_entry = {
                     'time': time_str,
                     'source': source,
+                    'capture_id': capture_id,
                     'content': '',
-                    'raw': line + '\n'
+                    'raw': line + '\n',
                 }
             elif current_entry:
                 current_entry['content'] += line + '\n'
@@ -262,7 +402,7 @@ class VaultManager:
             return activity if activity else ''
         
         return sorted(projects, key=sort_key, reverse=True)
-
+    
     def _read_project_meta(self, project_dir: Path) -> Dict[str, Any]:
         """Extract metadata from project files."""
         meta = {
@@ -328,14 +468,14 @@ class VaultManager:
         """Create new project from the canonical template."""
         project_dir = self.config.projects_dir / name
         project_dir.mkdir(parents=True, exist_ok=False)
-
+        
         template = self._project_readme_template()
         content = template.replace("{{project_name}}", name) \
                          .replace("{{description}}", description) \
                          .replace("{{phase}}", phase) \
                          .replace("{{health}}", "green") \
                          .replace("{{date}}", datetime.now().strftime('%Y-%m-%d'))
-
+        
         self.write_file(project_dir / "README.md", content)
         
         # Create standard files

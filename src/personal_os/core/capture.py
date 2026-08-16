@@ -20,6 +20,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+import ulid as _ulid
+
 from personal_os.core.vault import get_vault, VaultManager
 from personal_os.core.processor import (
     BackgroundProcessor,
@@ -37,6 +39,10 @@ class CaptureReceipt:
     Returned synchronously the moment persistence succeeds, before any
     processing runs. The presence of a receipt with ``persisted=True`` means
     the raw text is safe on disk and committed to git.
+
+    capture_id is a ULID embedded in the journal entry header and shared with
+    the semantic block — the stable traceability key between raw capture and
+    semantic interpretation.
     """
 
     raw: str
@@ -45,6 +51,7 @@ class CaptureReceipt:
     journal_path: Optional[Path] = None
     persisted: bool = False
     error: Optional[str] = None
+    capture_id: str = ""
 
 
 def persist_capture(
@@ -70,12 +77,13 @@ def persist_capture(
             persisted=False, error="empty capture",
         )
 
+    capture_id = str(_ulid.ulid())
     try:
-        path = vault.append_journal_entry(raw, timestamp=timestamp, source=source)
-        logger.info("Captured (%s) -> %s", source, path)
+        path = vault.append_journal_entry(raw, timestamp=timestamp, source=source, capture_id=capture_id)
+        logger.info("Captured (%s) cid=%s -> %s", source, capture_id[:8], path)
         return CaptureReceipt(
             raw=raw, source=source, timestamp=timestamp,
-            journal_path=path, persisted=True,
+            journal_path=path, persisted=True, capture_id=capture_id,
         )
     except Exception as e:  # noqa: BLE001 - capture must degrade gracefully
         logger.error("Capture persistence FAILED (%s): %s", source, e)

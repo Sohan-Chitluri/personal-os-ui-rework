@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Optional
 
+from textual.app import ComposeResult
 from textual.containers import Vertical
 from textual.widgets import Static
 
@@ -27,7 +28,7 @@ class Component(Vertical):
         super().__init__(**kwargs)
         self.context = context or WorkspaceContext()
 
-    def compose(self):
+    def compose(self) -> ComposeResult:
         yield Static(self._placeholder_text(), classes="component-placeholder")
 
     def _placeholder_text(self) -> str:

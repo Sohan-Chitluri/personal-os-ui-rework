@@ -5,6 +5,9 @@ It lazily instantiates views from VIEW_REGISTRY, mounts the active one, and
 drives the WorkspaceView lifecycle (on_activate / on_deactivate / refresh).
 
 Router state is derived from NavigationState; the router does not own navigation.
+
+Milestone 3.5: Router receives AppServices and uses AppServices.build_context()
+to build a fresh WorkspaceContext for each view when it's shown.
 """
 from __future__ import annotations
 
@@ -13,15 +16,15 @@ from typing import Dict, Optional
 from textual.containers import Container
 
 from personal_os.tui.views import VIEW_REGISTRY, WorkspaceView
+from personal_os.tui.services import AppServices
 
 
 class ViewRouter(Container):
     """Container that swaps the active workspace view."""
 
-    def __init__(self, vault=None, config=None, **kwargs):
+    def __init__(self, services: AppServices, **kwargs):
         super().__init__(**kwargs)
-        self.vault = vault
-        self.config = config
+        self.services = services
         self._views: Dict[str, WorkspaceView] = {}
         self._active_id: Optional[str] = None
 
@@ -30,7 +33,8 @@ class ViewRouter(Container):
             return None
         if view_id not in self._views:
             cls = VIEW_REGISTRY[view_id]
-            self._views[view_id] = cls(vault=self.vault, config=self.config)
+            # Create view with services; view will get context from router on show()
+            self._views[view_id] = cls(services=self.services)
         return self._views[view_id]
 
     @property
@@ -56,6 +60,9 @@ class ViewRouter(Container):
             if prev is not None:
                 prev.on_deactivate()
                 prev.display = False
+
+        # Build a fresh WorkspaceContext for this view via AppServices
+        view.context = self.services.build_context(self.services.nav, view_id)
 
         # Mount if first time shown
         if not view.is_mounted:

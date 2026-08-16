@@ -39,6 +39,10 @@ class VaultConfig:
     def inbox_dir(self) -> Path:
         return self.root / "00-Inbox"
 
+    @property
+    def resources_dir(self) -> Path:
+        return self.root / "05-Resources"
+
 
 @dataclass
 class ModelConfig:

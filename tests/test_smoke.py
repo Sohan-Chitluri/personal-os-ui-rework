@@ -107,6 +107,10 @@ def test_process_entry_extracts(isolated_vault):
     # ensure the singleton vault (used by process_entry) points at temp root
     VaultManager(VaultConfig(root=isolated_vault))
 
+    # Use regex fallback by ensuring no OPENROUTER_API_KEY is set
+    import os
+    os.environ.pop('OPENROUTER_API_KEY', None)
+
     result = asyncio.run(
         process_entry("Spent 2 hours on Maestro fixing the router bug", "Text")
     )
