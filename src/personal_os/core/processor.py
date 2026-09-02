@@ -70,6 +70,9 @@ class KnowledgeExtractor:
                 re.compile(r'(?:finished|completed|fixed|done with|wrapped up|shipped)\s+([^.]+)', re.IGNORECASE),
                 re.compile(r'(?:finally\s+)?(?:got\s+)?(?:it\s+)?working', re.IGNORECASE),
                 re.compile(r'(?:closed|resolved|merged)\s+([^.]+)', re.IGNORECASE),
+                # Natural language completion: "X is done", "the active task X is done", "X done"
+                re.compile(r'(?:the\s+active\s+task\s+)?(.+?)\s+is\s+(?:done|completed|finished)(?:\.|$)', re.IGNORECASE),
+                re.compile(r'\b(.+?)\s+done(?:\.|$)', re.IGNORECASE),
             ],
             'learning': [
                 re.compile(r'(?:study|learning|studying|reading|practicing)\s+([^.]+)', re.IGNORECASE),
@@ -344,9 +347,25 @@ class KnowledgeApplier:
 
         content = self.vault.read_file(tasks_file)
         desc = action.description.lower()
+        
+        # Extract core task description from completion text
+        # Handles: "X is done", "the active task X is done", "I finished X", "X done", "completed X"
+        import re
+        completion_patterns = [
+            r'(?:the\s+active\s+task\s+)?(.+?)\s+is\s+(?:done|completed|finished)$',
+            r'\b(.+?)\s+done$',
+            r'(?:i\s+)?(?:finished|completed)\s+(.+)',
+        ]
+        core_desc = desc
+        for pattern in completion_patterns:
+            m = re.search(pattern, desc, re.IGNORECASE)
+            if m:
+                core_desc = m.group(1).strip()
+                break
+        
         lines = content.split('\n')
         for i, line in enumerate(lines):
-            if line.strip().startswith("- [ ]") and any(w in line.lower() for w in desc.split()[:3]):
+            if line.strip().startswith("- [ ]") and any(w in line.lower() for w in core_desc.split()[:5]):
                 lines[i] = line.replace("- [ ]", "- [x]")
                 self.vault.write_file(tasks_file, '\n'.join(lines), message=f"Complete: {action.description[:50]}")
                 return [f"✅ Marked complete in {project}/Tasks.md"]
