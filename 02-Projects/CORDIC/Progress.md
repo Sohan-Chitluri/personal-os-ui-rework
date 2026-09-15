@@ -1,0 +1,3 @@
+# CORDIC Progress
+
+## Progress Log

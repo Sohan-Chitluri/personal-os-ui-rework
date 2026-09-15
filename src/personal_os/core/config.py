@@ -215,16 +215,14 @@ class Config:
     def _to_dict(self) -> dict:
         """Convert config to dict for serialization."""
         def convert(obj):
+            if isinstance(obj, Path):
+                return str(obj)
+            if isinstance(obj, dict):
+                return {k: convert(v) for k, v in obj.items() if v is not None}
+            if isinstance(obj, (list, tuple)):
+                return [convert(v) for v in obj if v is not None]
             if hasattr(obj, '__dataclass_fields__'):
-                result = {}
-                for k, v in asdict(obj).items():
-                    if isinstance(v, Path):
-                        result[k] = str(v)
-                    elif hasattr(v, '__dataclass_fields__'):
-                        result[k] = convert(v)
-                    else:
-                        result[k] = v
-                return result
+                return {k: convert(v) for k, v in asdict(obj).items() if v is not None}
             return obj
         
         return convert(self)

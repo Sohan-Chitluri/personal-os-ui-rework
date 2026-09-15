@@ -1,0 +1,3 @@
+# CORDIC Architecture
+
+## Decision Log
