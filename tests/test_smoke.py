@@ -218,3 +218,31 @@ def test_voice_capture_uses_capture_contract(isolated_vault, monkeypatch):
     assert "Voice captured task for CORDIC project" in content
     assert "Voice" in content
 
+
+# --------------------------------------------------------------------------- #
+# 10. TUI auto-refresh contract
+# --------------------------------------------------------------------------- #
+@pytest.mark.asyncio
+async def test_refresh_active_called_on_refresh_dashboard(isolated_vault, monkeypatch):
+    """on_refresh_dashboard must delegate to router.refresh_active()."""
+    from personal_os.tui.app import PersonalOSTUI, RefreshDashboard
+    from personal_os.core.config import VaultConfig
+    from personal_os.core.vault import VaultManager
+
+    VaultManager(VaultConfig(root=isolated_vault))
+
+    app = PersonalOSTUI()
+    refreshed = False
+
+    class DummyRouter:
+        async def refresh_active(self):
+            nonlocal refreshed
+            refreshed = True
+
+    dummy_router = DummyRouter()
+    monkeypatch.setattr(app, "query_one", lambda selector, exp_type=None: dummy_router)
+
+    await app.on_refresh_dashboard(RefreshDashboard())
+    assert refreshed is True, "router.refresh_active() was not invoked"
+
+

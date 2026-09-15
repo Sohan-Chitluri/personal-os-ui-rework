@@ -305,10 +305,10 @@ class PersonalOSTUI(App):
     async def on_refresh_dashboard(self, event: RefreshDashboard) -> None:
         """Handle dashboard refresh request."""
         router = self.query_one("#view-router", ViewRouter)
-        if router._active_id == "today":
-            view = router._views.get("today")
-            if view and hasattr(view, 'refresh_content'):
-                await view.refresh_content()
+        try:
+            await router.refresh_active()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("View refresh failed: %s", e)
 
     def on_unmount(self) -> None:
         asyncio.create_task(self.processor.stop())
