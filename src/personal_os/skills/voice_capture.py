@@ -164,9 +164,6 @@ async def capture_voice(
                 text = await _capture_once(duration, model, language)
                 if text:
                     print(f"\n🎤 {text}")
-                    # Auto-process
-                    vault = get_vault()
-                    vault.append_journal_entry(text, source="Voice")
         except KeyboardInterrupt:
             logger.info("Continuous capture stopped")
         return None
@@ -188,13 +185,18 @@ async def _capture_once(duration: int, model: str, language: str) -> Optional[st
     if text:
         print(f"✅ Transcribed: {text}")
         
-        # Auto-process
-        from personal_os.core.processor import process_entry
-        vault = get_vault()
-        vault.append_journal_entry(text, source="Voice")
-        result = await process_entry(text, "Voice")
+        # Follow the M1 capture contract: persist raw first with capture_id, then process
+        from personal_os.core.capture import capture_and_process
+        receipt, result = await capture_and_process(text, source="Voice")
         
-        if result.changes_made:
+        if not receipt.persisted:
+            print(f"❌ Capture failed: {receipt.error}")
+            return None
+        
+        journal_name = receipt.journal_path.name if receipt.journal_path else "journal"
+        print(f"✅ Logged to {journal_name}")
+        
+        if result and result.changes_made:
             print("🔄 Auto-processed:")
             for change in result.changes_made:
                 print(f"   {change}")
@@ -238,7 +240,13 @@ if __name__ == "__main__":
         # Direct text input
         text = " ".join(args.text)
         print(f"Captured: {text}")
-        asyncio.run(capture_voice(duration=0, model=args.model))
+        from personal_os.core.capture import capture_and_process
+        receipt, result = asyncio.run(capture_and_process(text, source="Voice"))
+        if receipt.persisted:
+            journal_name = receipt.journal_path.name if receipt.journal_path else "journal"
+            print(f"✅ Logged to {journal_name}")
+        else:
+            print(f"❌ Capture failed: {receipt.error}")
         sys.exit(0)
     
     asyncio.run(capture_voice(

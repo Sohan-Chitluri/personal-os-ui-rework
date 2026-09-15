@@ -183,3 +183,38 @@ def test_weekly_review_writes_file(isolated_vault):
     reviews_dir = isolated_vault / "04-Personal" / "Reviews" / "weekly"
     assert reviews_dir in out.parents
     assert "Weekly Review" in out.read_text()
+
+
+# --------------------------------------------------------------------------- #
+# 9. Voice capture wiring contract
+# --------------------------------------------------------------------------- #
+def test_voice_capture_uses_capture_contract(isolated_vault, monkeypatch):
+    """Voice capture must invoke capture_and_process and persist to journal."""
+    from personal_os.core.config import VaultConfig
+    from personal_os.core.vault import VaultManager
+    from personal_os.skills import voice_capture
+
+    VaultManager(VaultConfig(root=isolated_vault))
+
+    fake_audio = isolated_vault / "fake.wav"
+    fake_audio.write_bytes(b"RIFFtest")
+
+    async def mock_record_audio(duration, sample_rate=16000):
+        return fake_audio
+
+    async def mock_transcribe(audio_file, model="base", language="en"):
+        return "Voice captured task for CORDIC project"
+
+    monkeypatch.setattr(voice_capture, "record_audio", mock_record_audio)
+    monkeypatch.setattr(voice_capture, "transcribe", mock_transcribe)
+
+    text = asyncio.run(voice_capture._capture_once(duration=1, model="base", language="en"))
+    assert text == "Voice captured task for CORDIC project"
+
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    journal_file = isolated_vault / "04-Personal" / "Journal" / f"{today_str}.md"
+    assert journal_file.exists()
+    content = journal_file.read_text()
+    assert "Voice captured task for CORDIC project" in content
+    assert "Voice" in content
+
