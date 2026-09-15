@@ -153,9 +153,10 @@ class ProjectDetailPanel(Vertical):
     }
     """
 
-    def __init__(self, project: Optional[ProjectDetail] = None, **kwargs):
+    def __init__(self, project: Optional[ProjectDetail] = None, context=None, **kwargs):
         kwargs.setdefault("classes", "project-detail-panel")
         super().__init__(**kwargs)
+        self.context = context
         self._project = project
         self._doc_panels = {}
 

@@ -257,7 +257,7 @@ class ProjectTree(Component):
                     node = ProjectTreeNode(
                         project,
                         is_selected=is_selected,
-                        on_click=self._handle_select
+                        callback=self._handle_select
                     )
                     yield node
 

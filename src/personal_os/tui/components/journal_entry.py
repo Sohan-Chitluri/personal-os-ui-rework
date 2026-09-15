@@ -107,12 +107,12 @@ class JournalEntryWidget(Static):
     }
     JournalEntryWidget .semantic-description {
         color: $text;
-        margin-top: 0.5;
+        margin-top: 1;
     }
     JournalEntryWidget .semantic-meta {
         color: $text-muted;
-        font-size: 0.9;
-        margin-top: 0.5;
+        text-style: dim;
+        margin-top: 1;
     }
     """
 

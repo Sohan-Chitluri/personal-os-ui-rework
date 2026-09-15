@@ -6,9 +6,12 @@ from pathlib import Path
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+import logging
 import re
 
 from personal_os.core.vault import get_vault, VaultManager
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -102,23 +105,30 @@ class SearchEngine:
     
     def _build_rg_cmd(self, filters: SearchFilters) -> List[str]:
         """Build ripgrep command from filters."""
-        cmd = ["rg", "--no-heading", "--line-number", "--color=never", "--smart-case"]
-        
-        # Add search terms
-        for term in filters.terms:
-            cmd.extend(["-e", term])
-        
-        # Add phrase search
+        cmd = ["rg", "--no-heading", "--line-number", "--color=never", "-i"]
+
+        # SearchEngine semantics (matching the Python fallback):
+        # all positive terms/phrases/tags must appear in a matched line
+        # (AND), and any excluded term must NOT appear in the line.
+        # ripgrep ORs multiple -e patterns, so AND/NOT semantics require
+        # a single PCRE2 pattern built from lookaheads.
+        positive = [re.escape(t) for t in filters.terms]
         if filters.phrase:
-            cmd.extend(["-e", filters.phrase])
-        
-        # Exclusions
-        for excl in filters.exclude:
-            cmd.extend(["-g", f"!*{excl}*"])
-        
-        # Project filter
+            positive.append(re.escape(filters.phrase))
+        positive.extend("#" + re.escape(tag) for tag in filters.tags)
+
+        pattern = "^" + "".join(f"(?=.*{p})" for p in positive)
+        pattern += "".join(
+            f"(?!.*{re.escape(excl)})" for excl in filters.exclude
+        )
+        cmd.extend(["-P", "-e", pattern])
+
+        # Exclusions are handled in the pattern above (line-level NOT).
+
+        # Project filter — scope to files under a matching project
+        # directory (rg globs without leading ** only match basenames).
         if filters.project:
-            cmd.extend(["-g", f"*{filters.project}*"])
+            cmd.extend(["-g", f"**/*{filters.project}*/**", "-g", f"**/*{filters.project}*"])
         
         # File type filter
         if filters.file_type and filters.file_type in self.TYPE_MAP:
@@ -310,7 +320,7 @@ class SearchEngine:
             try:
                 return await self.search_rg(filters, limit)
             except Exception as e:
-                print(f"Ripgrep failed, falling back: {e}")
+                logger.warning("Ripgrep failed, falling back: %s", e)
         
         return await self.search_python(filters, limit)
     
