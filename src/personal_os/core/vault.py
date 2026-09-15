@@ -274,8 +274,8 @@ class VaultManager:
         This is a persist-first operation - always commits immediately,
         even if a batch is in progress.
         """
-        path = self.get_journal_path()
         timestamp = timestamp or datetime.now()
+        path = self.get_journal_path(timestamp)
         
         if not path.exists():
             header = f"# {timestamp.strftime('%Y-%m-%d')}\n\n"
