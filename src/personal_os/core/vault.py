@@ -526,3 +526,8 @@ def get_vault() -> VaultManager:
     if _vault is None:
         _vault = VaultManager()
     return _vault
+
+
+def set_vault(vault: VaultManager) -> None:
+    global _vault
+    _vault = vault
