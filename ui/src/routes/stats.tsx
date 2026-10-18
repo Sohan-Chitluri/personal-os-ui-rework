@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Check, ChevronLeft, ChevronRight, Play, RotateCcw } from "lucide-react";
 import { useState } from "react";
 import { toneBg } from "@/components/blockday-ui";
-import { dailyCompletions, focusMinutesByDay, projectById, streaks, type Task } from "@/lib/blockday-data";
+import { dailyCompletions, projectById, streaks } from "@/lib/blockday-data";
 import { formatClock, morph, useBlockday } from "@/lib/blockday-store";
 
 export const Route = createFileRoute("/stats")({
@@ -87,12 +87,11 @@ export function StatsPage() {
   const [sortByEnergy, setSortByEnergy] = useState(false);
   const [synced, setSynced] = useState("Synced 2h ago");
 
-  const { current, best } = streaks(dailyCompletions);
-  const totalTasksDone = 542; // Representative sample matching screenshot
-  const pomodoros = 118; // Matching screenshot
+  const { current } = streaks(dailyCompletions);
+  const totalTasksDone = 542; // Representative sample matching reference
+  const pomodoros = 118; // Matching reference
   const bestDay = Math.max(...dailyCompletions, 7);
 
-  const isToday = dayOffset === 0;
   const rawOpen = tasks.filter((t) => !t.done);
   const done = tasks.filter((t) => t.done);
 
@@ -126,7 +125,7 @@ export function StatsPage() {
   ];
 
   const cellColorClass = (tone: CellTone, isToday?: boolean) => {
-    const base = isToday ? "ring-2 ring-block-red ring-offset-1 z-10 " : "";
+    const base = isToday ? "ring-2 ring-block-red ring-offset-2 ring-offset-canvas z-10 " : "";
     switch (tone) {
       case "red":
         return base + "bg-block-red border border-grid";
@@ -137,367 +136,374 @@ export function StatsPage() {
       case "cream":
         return base + "bg-panel text-foreground border border-grid";
       default:
-        return base + "bg-panel/40 border border-grid/40 hover:border-grid";
+        return base + "bg-panel/30 border border-grid/35 hover:border-grid";
     }
   };
 
   return (
-    <main className="page-grid grid-cols-1 overflow-y-auto">
-      <div className="flex min-h-0 flex-col gap-[5px] bg-grid">
-        {/* TOP SECTION: DOMINANT "COMPOSITION OF WORK" ACTIVITY CANVAS + ASYMMETRIC YELLOW PANEL */}
-        <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_180px] xl:grid-cols-[minmax(0,1fr)_220px] gap-[5px]">
-          {/* Main Activity Canvas */}
-          <div className="border-b-[5px] border-grid bg-canvas p-4 sm:p-5 flex flex-col justify-between">
-            {/* Canvas Header + Metrics Strip */}
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between border-b-2 border-grid pb-4">
-              <div>
-                <span className="section-label text-muted-foreground">The last twelve months</span>
-                <h1 className="mt-1 font-display text-3xl sm:text-4xl uppercase leading-none tracking-tight">
-                  Composition of Work
-                </h1>
-              </div>
-
-              {/* Compact Metrics Strip */}
-              <div className="flex border-2 border-grid bg-canvas self-start sm:self-auto overflow-hidden">
-                <div className="bg-block-yellow text-block-ink px-3 py-1.5 text-center border-r-2 border-grid min-w-[70px]">
-                  <span className="font-display text-3xl font-black leading-none tabular-nums block">
-                    {current || 5}
-                  </span>
-                  <span className="text-[7.5px] font-black uppercase tracking-[0.14em] block mt-0.5">
-                    Day Streak
-                  </span>
-                </div>
-                <div className="bg-canvas text-foreground px-3 py-1.5 text-center border-r-2 border-grid min-w-[80px]">
-                  <span className="font-display text-3xl font-black leading-none tabular-nums block">
-                    {totalTasksDone}
-                  </span>
-                  <span className="text-[7.5px] font-black uppercase tracking-[0.14em] text-muted-foreground block mt-0.5">
-                    Tasks Done
-                  </span>
-                </div>
-                <div className="bg-canvas text-foreground px-3 py-1.5 text-center border-r-2 border-grid min-w-[80px]">
-                  <span className="font-display text-3xl font-black leading-none tabular-nums block">
-                    {pomodoros}
-                  </span>
-                  <span className="text-[7.5px] font-black uppercase tracking-[0.14em] text-muted-foreground block mt-0.5">
-                    Pomodoros
-                  </span>
-                </div>
-                <div className="bg-canvas text-foreground px-3 py-1.5 text-center min-w-[65px]">
-                  <span className="font-display text-3xl font-black leading-none tabular-nums block">
-                    {bestDay}
-                  </span>
-                  <span className="text-[7.5px] font-black uppercase tracking-[0.14em] text-muted-foreground block mt-0.5">
-                    Best Day
-                  </span>
-                </div>
-              </div>
+    <main className="flex min-h-[calc(100vh-72px)] flex-col bg-grid gap-[5px] border-l-[5px] border-grid overflow-y-auto">
+      {/* =========================================================================
+          TOP SECTION: DOMINANT "COMPOSITION OF WORK" ACTIVITY CANVAS + INTEGRATED YELLOW SLAB
+         ========================================================================= */}
+      <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_120px] xl:grid-cols-[minmax(0,1fr)_150px] gap-[5px] flex-shrink-0 bg-grid">
+        {/* Main Activity Canvas */}
+        <div className="bg-canvas p-4 sm:p-5 xl:p-6 flex flex-col justify-between border-b-[5px] border-grid">
+          {/* Header & Metric Strip */}
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between border-b-2 border-grid pb-4 xl:pb-5">
+            <div>
+              <span className="section-label text-xs tracking-[0.24em] text-muted-foreground">
+                The last twelve months
+              </span>
+              <h1 className="mt-1 font-display text-4xl sm:text-5xl xl:text-6xl uppercase leading-none tracking-tight">
+                Composition of Work
+              </h1>
             </div>
 
-            {/* 12-Month Timeline & Heat Map Grid */}
-            <div className="my-5 overflow-x-auto">
-              <div className="min-w-[680px]">
-                {/* Month Labels */}
-                <div className="flex justify-between pb-1.5 text-[8.5px] font-black uppercase tracking-[0.18em] text-muted-foreground px-0.5">
-                  {monthLabels.map((m, idx) => (
-                    <span key={idx}>{m}</span>
-                  ))}
-                </div>
-
-                {/* Heat Map Grid: 52 columns x 7 rows */}
-                <div className="grid grid-flow-col grid-rows-7 gap-[2.5px] border-2 border-grid p-2 bg-panel/20">
-                  {yearMatrix.map((col, colIdx) =>
-                    col.map((cell, rowIdx) => (
-                      <div
-                        key={`${colIdx}-${rowIdx}`}
-                        title={`Week ${colIdx + 1}, Day ${rowIdx + 1}`}
-                        className={`size-2.5 sm:size-3 md:size-3.5 aspect-square transition-transform hover:scale-125 ${cellColorClass(cell.tone, cell.isToday)}`}
-                      />
-                    ))
-                  )}
-                </div>
+            {/* Enlarged Summary Metrics Strip */}
+            <div className="flex border-2 border-grid bg-canvas self-start lg:self-auto overflow-hidden">
+              <div className="bg-block-yellow text-block-ink px-3 py-2 sm:px-4 sm:py-2.5 text-center border-r-2 border-grid min-w-[85px] xl:min-w-[105px]">
+                <span className="font-display text-4xl xl:text-5xl font-black leading-none tabular-nums block">
+                  {current || 5}
+                </span>
+                <span className="text-[8.5px] xl:text-[9.5px] font-black uppercase tracking-[0.16em] block mt-1">
+                  Day Streak
+                </span>
               </div>
-            </div>
-
-            {/* Bottom Row: Flavor Mix & Legend */}
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-t-2 border-grid pt-3 text-[9px] font-black uppercase tracking-[0.14em]">
-              {/* Flavor Mix */}
-              <div className="flex flex-col gap-1 sm:flex-row sm:items-center">
-                <span className="text-[8px] text-muted-foreground mr-2 tracking-[0.2em]">Flavor Mix</span>
-                <div className="flex border-2 border-grid h-6 items-stretch overflow-hidden">
-                  <div className="bg-block-red text-on-primary px-2 flex items-center border-r border-grid">
-                    Frog 1
-                  </div>
-                  <div className="bg-block-blue text-on-primary px-2 flex items-center border-r border-grid">
-                    Deep 2
-                  </div>
-                  <div className="bg-block-yellow text-block-ink px-2 flex items-center border-r border-grid">
-                    Spark 1
-                  </div>
-                  <div className="bg-panel text-foreground px-2 flex items-center border-r border-grid">
-                    Errand 3
-                  </div>
-                  <div className="bg-canvas text-foreground px-2 flex items-center">
-                    Plain 2
-                  </div>
-                </div>
+              <div className="bg-canvas text-foreground px-3 py-2 sm:px-4 sm:py-2.5 text-center border-r-2 border-grid min-w-[95px] xl:min-w-[120px]">
+                <span className="font-display text-4xl xl:text-5xl font-black leading-none tabular-nums block">
+                  {totalTasksDone}
+                </span>
+                <span className="text-[8.5px] xl:text-[9.5px] font-black uppercase tracking-[0.16em] text-muted-foreground block mt-1">
+                  Tasks Done
+                </span>
               </div>
-
-              {/* Activity Intensity Legend & Action */}
-              <div className="flex items-center gap-4">
-                <div className="flex items-center gap-1.5 text-[8px] text-muted-foreground">
-                  <span>Less</span>
-                  <span className="size-2.5 border border-grid bg-panel/40" />
-                  <span className="size-2.5 border border-grid bg-block-blue" />
-                  <span className="size-2.5 border border-grid bg-block-yellow" />
-                  <span className="size-2.5 border border-grid bg-block-red" />
-                  <span>More</span>
-                </div>
-                <button
-                  onClick={() => alert("Data reset to initial composition state")}
-                  className="ghost-chip text-[8px] py-1 px-2 hover:bg-block-ink hover:text-canvas"
-                >
-                  Reset all data
-                </button>
+              <div className="bg-canvas text-foreground px-3 py-2 sm:px-4 sm:py-2.5 text-center border-r-2 border-grid min-w-[95px] xl:min-w-[120px]">
+                <span className="font-display text-4xl xl:text-5xl font-black leading-none tabular-nums block">
+                  {pomodoros}
+                </span>
+                <span className="text-[8.5px] xl:text-[9.5px] font-black uppercase tracking-[0.16em] text-muted-foreground block mt-1">
+                  Pomodoros
+                </span>
+              </div>
+              <div className="bg-canvas text-foreground px-3 py-2 sm:px-4 sm:py-2.5 text-center min-w-[80px] xl:min-w-[95px]">
+                <span className="font-display text-4xl xl:text-5xl font-black leading-none tabular-nums block">
+                  {bestDay}
+                </span>
+                <span className="text-[8.5px] xl:text-[9.5px] font-black uppercase tracking-[0.16em] text-muted-foreground block mt-1">
+                  Best Day
+                </span>
               </div>
             </div>
           </div>
 
-          {/* Asymmetric Yellow Geometric Panel */}
-          <div className="hidden lg:block border-b-[5px] border-grid bg-block-yellow min-h-[220px]" />
-        </section>
-
-        {/* BOTTOM SECTION: SECONDARY LOWER WORKSPACE AREA */}
-        <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.2fr)_160px_minmax(0,1fr)] xl:grid-cols-[minmax(0,1.3fr)_200px_minmax(0,1fr)] gap-[5px]">
-          {/* LOWER WORKSPACE - COLUMN 1: TODAY DATE & TASKS LEDGER */}
-          <div className="flex min-h-0 flex-col bg-canvas border-r-[5px] border-grid">
-            {/* Date Numeral + Controls Header */}
-            <div className="border-b-2 border-grid p-4">
-              <div className="flex items-baseline justify-between gap-3">
-                <div className="flex items-baseline gap-2.5">
-                  <span className="font-display text-4xl font-black leading-none tabular-nums text-foreground">
-                    {dayNum}
-                  </span>
-                  <div>
-                    <h2 className="font-display text-lg uppercase leading-none tracking-tight">{weekday}</h2>
-                    <p className="mt-0.5 text-[8.5px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
-                      {monthYear}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => morph(() => setDayOffset(Math.max(-3, dayOffset - 1)))}
-                    disabled={dayOffset <= -3}
-                    className="ghost-chip px-1.5 py-0.5"
-                    title="Previous Day"
-                  >
-                    <ChevronLeft className="size-2.5" />
-                  </button>
-                  <button
-                    onClick={() => morph(() => setDayOffset(0))}
-                    className="ghost-chip px-1.5 py-0.5 text-[8.5px]"
-                  >
-                    Today
-                  </button>
-                  <button
-                    onClick={() => morph(() => setDayOffset(Math.min(0, dayOffset + 1)))}
-                    disabled={dayOffset >= 0}
-                    className="ghost-chip px-1.5 py-0.5"
-                    title="Next Day"
-                  >
-                    <ChevronRight className="size-2.5" />
-                  </button>
-                  <button
-                    onClick={() => morph(() => setSortByEnergy(!sortByEnergy))}
-                    className={`ghost-chip flex items-center gap-1 text-[8.5px] py-0.5 ${sortByEnergy ? "bg-block-ink text-canvas" : ""}`}
-                    title="Sort by Energy"
-                  >
-                    <span className="flex gap-0.5">
-                      <i className="size-1.5 bg-block-red" />
-                      <i className="size-1.5 bg-block-yellow" />
-                      <i className="size-1.5 bg-block-blue" />
-                    </span>
-                    Sort by energy
-                  </button>
-                </div>
+          {/* Enlarged 12-Month Activity Heat Map */}
+          <div className="my-4 xl:my-6 overflow-x-auto">
+            <div className="min-w-[760px] xl:min-w-[920px]">
+              {/* Month Labels aligned over the 52-week columns */}
+              <div className="flex justify-between pb-2 text-[9px] xl:text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground px-1">
+                {monthLabels.map((m, idx) => (
+                  <span key={idx}>{m}</span>
+                ))}
               </div>
 
-              <div className="mt-2.5 flex items-center justify-between text-[8.5px] font-black uppercase tracking-[0.16em] text-muted-foreground border-t border-grid/20 pt-1.5">
-                <span>{open.length} Open · {done.length} Done · {plannedMin}M Planned</span>
-                <span>Wraps ~9:25AM</span>
-              </div>
-            </div>
-
-            {/* Quick add */}
-            <form onSubmit={handleAddTask} className="border-b-2 border-grid bg-canvas px-4 py-2">
-              <input
-                value={newTitle}
-                onChange={(e) => setNewTitle(e.target.value)}
-                placeholder="Add to today..."
-                className="w-full bg-transparent text-xs font-medium outline-none placeholder:text-muted-foreground"
-              />
-            </form>
-
-            {/* Task rows */}
-            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-              <div className="divide-y divide-grid/20">
-                {open.map((t) => {
-                  const project = projectById(t.projectId);
-                  return (
+              {/* Heat Map Grid: 52 columns x 7 rows with enlarged square cells */}
+              <div className="grid grid-flow-col grid-rows-7 gap-[3px] xl:gap-[4px] border-2 border-grid p-3 sm:p-4 bg-panel/20">
+                {yearMatrix.map((col, colIdx) =>
+                  col.map((cell, rowIdx) => (
                     <div
-                      key={t.id}
-                      onClick={() => selectTask(t.id)}
-                      className="group flex cursor-pointer items-center justify-between px-4 py-2.5 transition-colors hover:bg-panel"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            toggle(t.id);
-                          }}
-                          className="check-button size-4"
-                          aria-label={`Complete ${t.title}`}
-                        >
-                          {t.done && <Check className="size-2.5 stroke-[4]" />}
-                        </button>
-                        <span className="text-xs font-bold tracking-tight">{t.title}</span>
-                      </div>
-                      <div className="flex items-center gap-2 font-mono text-[9px] text-muted-foreground">
-                        <span>{t.estimate}M</span>
-                        <span className={`project-swatch ${project ? toneBg[project.tone] : "bg-panel"}`} />
-                      </div>
-                    </div>
-                  );
-                })}
+                      key={`${colIdx}-${rowIdx}`}
+                      title={`Week ${colIdx + 1}, Day ${rowIdx + 1}`}
+                      className={`size-3.5 sm:size-4 md:size-[17px] xl:size-[19px] aspect-square transition-transform hover:scale-125 ${cellColorClass(cell.tone, cell.isToday)}`}
+                    />
+                  ))
+                )}
               </div>
-
-              {done.length > 0 && (
-                <div className="mt-3 border-t-2 border-grid">
-                  <div className="bg-panel px-4 py-1 text-[8px] font-black uppercase tracking-[0.18em] text-muted-foreground border-b border-grid/20">
-                    Done · {done.length}
-                  </div>
-                  <div className="divide-y divide-grid/20 opacity-60">
-                    {done.map((t) => {
-                      const project = projectById(t.projectId);
-                      return (
-                        <div
-                          key={t.id}
-                          onClick={() => toggle(t.id)}
-                          className="group flex cursor-pointer items-center justify-between px-4 py-1.5 hover:opacity-100 transition-opacity"
-                        >
-                          <div className="flex items-center gap-2.5">
-                            <span className={`h-3 w-1 flex-shrink-0 ${project ? toneBg[project.tone] : "bg-block-blue"}`} />
-                            <span className="text-xs line-through">{t.title}</span>
-                          </div>
-                          <span className="font-mono text-[9px] text-muted-foreground">{t.estimate}M</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
             </div>
           </div>
 
-          {/* LOWER WORKSPACE - COLUMN 2: GEOMETRIC COLOR PANELS (BLUE TOP, RED BOTTOM) */}
-          <div className="hidden lg:flex flex-col gap-[5px] min-h-[280px]">
-            <div className="flex-1 border-2 border-grid bg-block-blue" />
-            <div className="flex-1 border-2 border-grid bg-block-red" />
-          </div>
-
-          {/* LOWER WORKSPACE - COLUMN 3: FOCUS TIMER & GOOGLE CALENDAR */}
-          <div className="flex flex-col gap-[5px] bg-grid">
-            {/* Focus Timer */}
-            <div className="flex flex-col justify-between border-2 border-grid bg-canvas p-4">
-              <div>
-                <div className="flex border-2 border-grid">
-                  <button
-                    onClick={() => setMode("Focus")}
-                    className={`flex-1 py-1 text-center text-[8.5px] font-black uppercase tracking-[0.14em] transition-colors ${timer.mode === "Focus" ? "bg-block-ink text-canvas" : "bg-canvas text-foreground"}`}
-                  >
-                    Focus
-                  </button>
-                  <button
-                    onClick={() => setMode("Break")}
-                    className={`flex-1 py-1 text-center text-[8.5px] font-black uppercase tracking-[0.14em] transition-colors ${timer.mode === "Break" ? "bg-block-ink text-canvas" : "bg-canvas text-foreground"}`}
-                  >
-                    Break
-                  </button>
+          {/* Bottom Bar: Flavor Mix & Activity Intensity Legend */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-t-2 border-grid pt-3 xl:pt-4 text-[9.5px] font-black uppercase tracking-[0.14em]">
+            {/* Flavor Mix */}
+            <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center">
+              <span className="text-[8.5px] text-muted-foreground mr-2 tracking-[0.2em]">Flavor Mix</span>
+              <div className="flex border-2 border-grid h-7 xl:h-8 items-stretch overflow-hidden">
+                <div className="bg-block-red text-on-primary px-3 flex items-center border-r border-grid">
+                  Frog 1
                 </div>
+                <div className="bg-block-blue text-on-primary px-3 flex items-center border-r border-grid">
+                  Deep 2
+                </div>
+                <div className="bg-block-yellow text-block-ink px-3 flex items-center border-r border-grid">
+                  Spark 1
+                </div>
+                <div className="bg-panel text-foreground px-3 flex items-center border-r border-grid">
+                  Errand 3
+                </div>
+                <div className="bg-canvas text-foreground px-3 flex items-center">
+                  Plain 2
+                </div>
+              </div>
+            </div>
 
-                <div className="mt-3 text-center">
-                  <span className="font-display text-4xl font-black leading-none tabular-nums tracking-tight">
-                    {formatClock(timer.seconds)}
-                  </span>
-                  <p className="mt-1 text-[7.5px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
-                    Drag a task here, or press ▶ on one
+            {/* Activity Intensity Legend & Action Button */}
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-1.5 text-[8.5px] text-muted-foreground">
+                <span>Less</span>
+                <span className="size-3 border border-grid bg-panel/30" />
+                <span className="size-3 border border-grid bg-block-blue" />
+                <span className="size-3 border border-grid bg-block-yellow" />
+                <span className="size-3 border border-grid bg-block-red" />
+                <span>More</span>
+              </div>
+              <button
+                onClick={() => alert("Data reset to initial composition state")}
+                className="ghost-chip text-[8.5px] py-1 px-2.5 hover:bg-block-ink hover:text-canvas"
+              >
+                Reset all data
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Integrated Asymmetric Yellow Geometric Panel */}
+        <div className="hidden lg:block border-b-[5px] border-grid bg-block-yellow h-full min-h-[300px]" />
+      </section>
+
+      {/* =========================================================================
+          BOTTOM SECTION: SECONDARY LOWER WORKSPACE AREA
+          Fills 100% of remaining vertical space with aligned blue/red and timer/calendar blocks
+         ========================================================================= */}
+      <section className="flex-1 min-h-[380px] grid grid-cols-1 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1.1fr)] xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1.1fr)] gap-[5px] bg-grid">
+        {/* LOWER WORKSPACE - COLUMN 1: TODAY DATE & TASKS LEDGER */}
+        <div className="flex min-h-0 flex-col bg-canvas border-2 border-grid h-full">
+          {/* Date Numeral + Action Controls Header */}
+          <div className="border-b-2 border-grid p-4 xl:p-5">
+            <div className="flex items-baseline justify-between gap-3">
+              <div className="flex items-baseline gap-3">
+                <span className="font-display text-5xl xl:text-6xl font-black leading-none tabular-nums text-foreground">
+                  {dayNum}
+                </span>
+                <div>
+                  <h2 className="font-display text-xl xl:text-2xl uppercase leading-none tracking-tight">{weekday}</h2>
+                  <p className="mt-0.5 text-[9px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                    {monthYear}
                   </p>
                 </div>
               </div>
+              <div className="flex items-center gap-1.5">
+                <button
+                  onClick={() => morph(() => setDayOffset(Math.max(-3, dayOffset - 1)))}
+                  disabled={dayOffset <= -3}
+                  className="ghost-chip px-2 py-1"
+                  title="Previous Day"
+                >
+                  <ChevronLeft className="size-3" />
+                </button>
+                <button
+                  onClick={() => morph(() => setDayOffset(0))}
+                  className="ghost-chip px-2 py-1 text-[9px]"
+                >
+                  Today
+                </button>
+                <button
+                  onClick={() => morph(() => setDayOffset(Math.min(0, dayOffset + 1)))}
+                  disabled={dayOffset >= 0}
+                  className="ghost-chip px-2 py-1"
+                  title="Next Day"
+                >
+                  <ChevronRight className="size-3" />
+                </button>
+                <button
+                  onClick={() => morph(() => setSortByEnergy(!sortByEnergy))}
+                  className={`ghost-chip flex items-center gap-1 text-[9px] py-1 ${sortByEnergy ? "bg-block-ink text-canvas" : ""}`}
+                  title="Sort by Energy"
+                >
+                  <span className="flex gap-0.5">
+                    <i className="size-1.5 bg-block-red" />
+                    <i className="size-1.5 bg-block-yellow" />
+                    <i className="size-1.5 bg-block-blue" />
+                  </span>
+                  Sort by energy
+                </button>
+              </div>
+            </div>
 
-              <div className="mt-3">
-                <div className="flex gap-1.5">
-                  <button
-                    onClick={toggleTimer}
-                    className="ghost-chip flex-1 py-1 text-center text-[8.5px] bg-block-blue text-on-primary hover:bg-block-ink hover:text-canvas"
+            <div className="mt-3 flex items-center justify-between text-[9px] font-black uppercase tracking-[0.16em] text-muted-foreground border-t border-grid/20 pt-2">
+              <span>{open.length} Open · {done.length} Done · {plannedMin}M Planned</span>
+              <span>Wraps ~9:25AM</span>
+            </div>
+          </div>
+
+          {/* Quick add input */}
+          <form onSubmit={handleAddTask} className="border-b-2 border-grid bg-canvas px-4 py-2.5">
+            <input
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              placeholder="Add to today..."
+              className="w-full bg-transparent text-xs font-medium outline-none placeholder:text-muted-foreground"
+            />
+          </form>
+
+          {/* Task rows ledger */}
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+            <div className="divide-y divide-grid/20">
+              {open.map((t) => {
+                const project = projectById(t.projectId);
+                return (
+                  <div
+                    key={t.id}
+                    onClick={() => selectTask(t.id)}
+                    className="group flex cursor-pointer items-center justify-between px-4 py-3 transition-colors hover:bg-panel"
                   >
-                    <Play className="inline-block size-2 mr-1 fill-current" />
-                    {timer.running ? "Pause" : "Start"}
-                  </button>
-                  <button
-                    onClick={resetTimer}
-                    className="ghost-chip py-1 px-2"
-                    title="Reset timer"
-                  >
-                    <RotateCcw className="size-2" />
-                  </button>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          toggle(t.id);
+                        }}
+                        className="check-button size-5"
+                        aria-label={`Complete ${t.title}`}
+                      >
+                        {t.done && <Check className="size-3 stroke-[3]" />}
+                      </button>
+                      <span className="text-sm font-bold tracking-tight">{t.title}</span>
+                    </div>
+                    <div className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
+                      <span>{t.estimate}M</span>
+                      <span className={`project-swatch ${project ? toneBg[project.tone] : "bg-panel"}`} />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {done.length > 0 && (
+              <div className="mt-3 border-t-2 border-grid">
+                <div className="bg-panel px-4 py-1.5 text-[8.5px] font-black uppercase tracking-[0.18em] text-muted-foreground border-b border-grid/20">
+                  Done · {done.length}
                 </div>
-                <p className="mt-1.5 text-center text-[7.5px] font-black uppercase tracking-[0.16em] text-muted-foreground">
-                  {timer.sessions} Today
+                <div className="divide-y divide-grid/20 opacity-60">
+                  {done.map((t) => {
+                    const project = projectById(t.projectId);
+                    return (
+                      <div
+                        key={t.id}
+                        onClick={() => toggle(t.id)}
+                        className="group flex cursor-pointer items-center justify-between px-4 py-2 hover:opacity-100 transition-opacity"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span className={`h-3.5 w-1 flex-shrink-0 ${project ? toneBg[project.tone] : "bg-block-blue"}`} />
+                          <span className="text-xs line-through">{t.title}</span>
+                        </div>
+                        <span className="font-mono text-[9px] text-muted-foreground">{t.estimate}M</span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* LOWER WORKSPACE - COLUMN 2 & 3: ALIGNED GEOMETRIC PANELS (BLUE/RED) & UTILITY RAIL */}
+        <div className="hidden lg:grid grid-cols-[120px_minmax(0,1fr)] xl:grid-cols-[140px_minmax(0,1fr)] grid-rows-2 gap-[5px] h-full">
+          {/* Row 1, Col 1: Solid Blue Panel (perfectly aligned with Focus Timer) */}
+          <div className="border-2 border-grid bg-block-blue h-full" />
+
+          {/* Row 1, Col 2: Focus Timer (perfectly aligned with Blue Panel) */}
+          <div className="flex flex-col justify-between border-2 border-grid bg-canvas p-4 xl:p-5 h-full">
+            <div>
+              <div className="flex border-2 border-grid">
+                <button
+                  onClick={() => setMode("Focus")}
+                  className={`flex-1 py-1 text-center text-[9px] font-black uppercase tracking-[0.14em] transition-colors ${timer.mode === "Focus" ? "bg-block-ink text-canvas" : "bg-canvas text-foreground"}`}
+                >
+                  Focus
+                </button>
+                <button
+                  onClick={() => setMode("Break")}
+                  className={`flex-1 py-1 text-center text-[9px] font-black uppercase tracking-[0.14em] transition-colors ${timer.mode === "Break" ? "bg-block-ink text-canvas" : "bg-canvas text-foreground"}`}
+                >
+                  Break
+                </button>
+              </div>
+
+              <div className="mt-4 text-center">
+                <span className="font-display text-5xl font-black leading-none tabular-nums tracking-tight">
+                  {formatClock(timer.seconds)}
+                </span>
+                <p className="mt-1.5 text-[8px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
+                  Drag a task here, or press ▶ on one
                 </p>
               </div>
             </div>
 
-            {/* Google Calendar */}
-            <div className="flex flex-col border-2 border-grid bg-canvas p-4">
+            <div className="mt-3">
+              <div className="flex gap-2">
+                <button
+                  onClick={toggleTimer}
+                  className="ghost-chip flex-1 py-1.5 text-center text-[9px] bg-block-blue text-on-primary hover:bg-block-ink hover:text-canvas"
+                >
+                  <Play className="inline-block size-2.5 mr-1 fill-current" />
+                  {timer.running ? "Pause" : "Start"}
+                </button>
+                <button
+                  onClick={resetTimer}
+                  className="ghost-chip py-1.5 px-2.5"
+                  title="Reset timer"
+                >
+                  <RotateCcw className="size-2.5" />
+                </button>
+              </div>
+              <p className="mt-1.5 text-center text-[8px] font-black uppercase tracking-[0.16em] text-muted-foreground">
+                {timer.sessions} Today
+              </p>
+            </div>
+          </div>
+
+          {/* Row 2, Col 1: Solid Red Panel (perfectly aligned with Google Calendar) */}
+          <div className="border-2 border-grid bg-block-red h-full" />
+
+          {/* Row 2, Col 2: Google Calendar (perfectly aligned with Red Panel) */}
+          <div className="flex flex-col justify-between border-2 border-grid bg-canvas p-4 xl:p-5 h-full">
+            <div>
               <div className="flex items-center justify-between">
-                <span className="text-[8.5px] font-black uppercase tracking-[0.16em]">Google Calendar</span>
+                <span className="text-[9px] font-black uppercase tracking-[0.16em]">Google Calendar</span>
                 <span className="text-[10px] text-muted-foreground">✕</span>
               </div>
-              <div className="mt-1 flex items-center gap-1.5 text-[7.5px] font-bold uppercase tracking-wider text-muted-foreground">
+              <div className="mt-1 flex items-center gap-1.5 text-[8px] font-bold uppercase tracking-wider text-muted-foreground">
                 <span className="size-1.5 bg-block-blue" />
                 <span>{synced}</span>
               </div>
 
-              <div className="mt-2.5 space-y-1 border-t border-grid/20 pt-1.5 text-xs">
+              <div className="mt-3 space-y-1.5 border-t border-grid/20 pt-2 text-xs">
                 {calendarEvents.map((evt) => (
                   <div key={evt.time} className="flex items-baseline justify-between font-mono">
-                    <span className="text-[9px] text-muted-foreground">{evt.time}</span>
+                    <span className="text-[10px] text-muted-foreground">{evt.time}</span>
                     <span className="font-sans font-bold text-xs">{evt.title}</span>
                   </div>
                 ))}
               </div>
+            </div>
 
-              <div className="mt-3 flex gap-1.5 border-t border-grid/20 pt-1.5">
-                <button
-                  onClick={() => setSynced("Synced just now")}
-                  className="ghost-chip flex-1 py-0.5 text-center text-[8px]"
-                >
-                  Sync
-                </button>
-                <button
-                  onClick={() => alert("Flow scheduled into calendar")}
-                  className="ghost-chip flex-1 py-0.5 text-center text-[8px]"
-                >
-                  Send flow
-                </button>
-              </div>
+            <div className="mt-3 flex gap-2 border-t border-grid/20 pt-2">
+              <button
+                onClick={() => setSynced("Synced just now")}
+                className="ghost-chip flex-1 py-1 text-center text-[8.5px]"
+              >
+                Sync
+              </button>
+              <button
+                onClick={() => alert("Flow scheduled into calendar")}
+                className="ghost-chip flex-1 py-1 text-center text-[8.5px]"
+              >
+                Send flow
+              </button>
             </div>
           </div>
-        </section>
-      </div>
+        </div>
+      </section>
     </main>
   );
 }
