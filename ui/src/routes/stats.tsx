@@ -9,9 +9,9 @@ export const Route = createFileRoute("/stats")({
   head: () => ({
     meta: [
       { title: "Composition of Work — Blockday" },
-      { name: "description", content: "The last twelve months: dense activity heat map, flavor mix, streaks, and focus metrics." },
+      { name: "description", content: "The last twelve months: unified activity grid, flavor mix, streaks, and focus metrics." },
       { property: "og:title", content: "Composition of Work — Blockday" },
-      { property: "og:description", content: "The last twelve months: dense activity heat map, flavor mix, streaks, and focus metrics." },
+      { property: "og:description", content: "The last twelve months: unified activity grid, flavor mix, streaks, and focus metrics." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -136,32 +136,33 @@ export function StatsPage() {
       case "cream":
         return base + "bg-panel text-foreground border border-grid";
       default:
-        return base + "bg-panel/30 border border-grid/35 hover:border-grid";
+        return base + "bg-panel/25 border border-grid/35 hover:border-grid";
     }
   };
 
   return (
-    <main className="flex min-h-[calc(100vh-72px)] flex-col bg-grid gap-[5px] border-l-[5px] border-grid overflow-y-auto">
+    <main className="grid grid-rows-[auto_1fr] min-h-[calc(100vh-72px)] bg-grid gap-[4px] border-l-[4px] border-grid overflow-y-auto">
       {/* =========================================================================
-          TOP SECTION: DOMINANT "COMPOSITION OF WORK" ACTIVITY CANVAS + INTEGRATED YELLOW SLAB
+          UPPER SECTION: UNIFIED "COMPOSITION OF WORK" GRID
+          Pure Mondrian grid cells without nested card boxes
          ========================================================================= */}
-      <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_120px] xl:grid-cols-[minmax(0,1fr)_150px] gap-[5px] flex-shrink-0 bg-grid">
-        {/* Main Activity Canvas */}
-        <div className="bg-canvas p-4 sm:p-5 xl:p-6 flex flex-col justify-between border-b-[5px] border-grid">
-          {/* Header & Metric Strip */}
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between border-b-2 border-grid pb-4 xl:pb-5">
+      <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_130px] xl:grid-cols-[minmax(0,1fr)_160px] gap-[4px] bg-grid flex-shrink-0">
+        {/* Cell 1: Main Activity Canvas */}
+        <div className="bg-canvas p-5 sm:p-6 xl:p-7 flex flex-col justify-between">
+          {/* Header Row: Title + Integrated Metric Cells */}
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between pb-5 border-b-2 border-grid">
             <div>
-              <span className="section-label text-xs tracking-[0.24em] text-muted-foreground">
+              <span className="text-[10px] font-black uppercase tracking-[0.24em] text-muted-foreground block mb-1">
                 The last twelve months
               </span>
-              <h1 className="mt-1 font-display text-4xl sm:text-5xl xl:text-6xl uppercase leading-none tracking-tight">
+              <h1 className="font-display text-4xl sm:text-5xl xl:text-6xl uppercase leading-none tracking-tight">
                 Composition of Work
               </h1>
             </div>
 
-            {/* Enlarged Summary Metrics Strip */}
-            <div className="flex border-2 border-grid bg-canvas self-start lg:self-auto overflow-hidden">
-              <div className="bg-block-yellow text-block-ink px-3 py-2 sm:px-4 sm:py-2.5 text-center border-r-2 border-grid min-w-[85px] xl:min-w-[105px]">
+            {/* Metrics: single contiguous grid row with internal line dividers */}
+            <div className="flex border-2 border-grid bg-canvas self-start lg:self-auto overflow-hidden divide-x-2 divide-grid">
+              <div className="bg-block-yellow text-block-ink px-4 py-2 sm:px-5 sm:py-2.5 text-center min-w-[85px] xl:min-w-[105px]">
                 <span className="font-display text-4xl xl:text-5xl font-black leading-none tabular-nums block">
                   {current || 5}
                 </span>
@@ -169,7 +170,7 @@ export function StatsPage() {
                   Day Streak
                 </span>
               </div>
-              <div className="bg-canvas text-foreground px-3 py-2 sm:px-4 sm:py-2.5 text-center border-r-2 border-grid min-w-[95px] xl:min-w-[120px]">
+              <div className="bg-canvas text-foreground px-4 py-2 sm:px-5 sm:py-2.5 text-center min-w-[95px] xl:min-w-[120px]">
                 <span className="font-display text-4xl xl:text-5xl font-black leading-none tabular-nums block">
                   {totalTasksDone}
                 </span>
@@ -177,7 +178,7 @@ export function StatsPage() {
                   Tasks Done
                 </span>
               </div>
-              <div className="bg-canvas text-foreground px-3 py-2 sm:px-4 sm:py-2.5 text-center border-r-2 border-grid min-w-[95px] xl:min-w-[120px]">
+              <div className="bg-canvas text-foreground px-4 py-2 sm:px-5 sm:py-2.5 text-center min-w-[95px] xl:min-w-[120px]">
                 <span className="font-display text-4xl xl:text-5xl font-black leading-none tabular-nums block">
                   {pomodoros}
                 </span>
@@ -185,7 +186,7 @@ export function StatsPage() {
                   Pomodoros
                 </span>
               </div>
-              <div className="bg-canvas text-foreground px-3 py-2 sm:px-4 sm:py-2.5 text-center min-w-[80px] xl:min-w-[95px]">
+              <div className="bg-canvas text-foreground px-4 py-2 sm:px-5 sm:py-2.5 text-center min-w-[80px] xl:min-w-[95px]">
                 <span className="font-display text-4xl xl:text-5xl font-black leading-none tabular-nums block">
                   {bestDay}
                 </span>
@@ -196,47 +197,49 @@ export function StatsPage() {
             </div>
           </div>
 
-          {/* Enlarged 12-Month Activity Heat Map */}
-          <div className="my-4 xl:my-6 overflow-x-auto">
+          {/* Activity Heat Map: Direct grid spanning the cell */}
+          <div className="my-5 xl:my-6 overflow-x-auto">
             <div className="min-w-[760px] xl:min-w-[920px]">
-              {/* Month Labels aligned over the 52-week columns */}
-              <div className="flex justify-between pb-2 text-[9px] xl:text-[10px] font-black uppercase tracking-[0.2em] text-muted-foreground px-1">
+              {/* Month Markers directly aligned over columns */}
+              <div className="flex justify-between pb-2 text-[9px] xl:text-[10px] font-black uppercase tracking-[0.24em] text-muted-foreground px-1">
                 {monthLabels.map((m, idx) => (
                   <span key={idx}>{m}</span>
                 ))}
               </div>
 
-              {/* Heat Map Grid: 52 columns x 7 rows with enlarged square cells */}
-              <div className="grid grid-flow-col grid-rows-7 gap-[3px] xl:gap-[4px] border-2 border-grid p-3 sm:p-4 bg-panel/20">
-                {yearMatrix.map((col, colIdx) =>
-                  col.map((cell, rowIdx) => (
-                    <div
-                      key={`${colIdx}-${rowIdx}`}
-                      title={`Week ${colIdx + 1}, Day ${rowIdx + 1}`}
-                      className={`size-3.5 sm:size-4 md:size-[17px] xl:size-[19px] aspect-square transition-transform hover:scale-125 ${cellColorClass(cell.tone, cell.isToday)}`}
-                    />
-                  ))
-                )}
+              {/* 52-column x 7-row Activity Grid */}
+              <div className="border-2 border-grid p-3 sm:p-4 bg-canvas">
+                <div className="grid grid-flow-col grid-rows-7 gap-[3px] xl:gap-[4px]">
+                  {yearMatrix.map((col, colIdx) =>
+                    col.map((cell, rowIdx) => (
+                      <div
+                        key={`${colIdx}-${rowIdx}`}
+                        title={`Week ${colIdx + 1}, Day ${rowIdx + 1}`}
+                        className={`size-3.5 sm:size-4 md:size-[17px] xl:size-[19px] aspect-square transition-transform hover:scale-125 ${cellColorClass(cell.tone, cell.isToday)}`}
+                      />
+                    ))
+                  )}
+                </div>
               </div>
             </div>
           </div>
 
           {/* Bottom Bar: Flavor Mix & Activity Intensity Legend */}
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border-t-2 border-grid pt-3 xl:pt-4 text-[9.5px] font-black uppercase tracking-[0.14em]">
-            {/* Flavor Mix */}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pt-4 border-t-2 border-grid text-[9.5px] font-black uppercase tracking-[0.14em]">
+            {/* Flavor Mix: single continuous segmented bar */}
             <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center">
               <span className="text-[8.5px] text-muted-foreground mr-2 tracking-[0.2em]">Flavor Mix</span>
-              <div className="flex border-2 border-grid h-7 xl:h-8 items-stretch overflow-hidden">
-                <div className="bg-block-red text-on-primary px-3 flex items-center border-r border-grid">
+              <div className="flex border-2 border-grid h-7 xl:h-8 divide-x-2 divide-grid overflow-hidden">
+                <div className="bg-block-red text-on-primary px-3 flex items-center">
                   Frog 1
                 </div>
-                <div className="bg-block-blue text-on-primary px-3 flex items-center border-r border-grid">
+                <div className="bg-block-blue text-on-primary px-3 flex items-center">
                   Deep 2
                 </div>
-                <div className="bg-block-yellow text-block-ink px-3 flex items-center border-r border-grid">
+                <div className="bg-block-yellow text-block-ink px-3 flex items-center">
                   Spark 1
                 </div>
-                <div className="bg-panel text-foreground px-3 flex items-center border-r border-grid">
+                <div className="bg-panel text-foreground px-3 flex items-center">
                   Errand 3
                 </div>
                 <div className="bg-canvas text-foreground px-3 flex items-center">
@@ -245,7 +248,7 @@ export function StatsPage() {
               </div>
             </div>
 
-            {/* Activity Intensity Legend & Action Button */}
+            {/* Activity Intensity Legend & Action */}
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-1.5 text-[8.5px] text-muted-foreground">
                 <span>Less</span>
@@ -265,87 +268,87 @@ export function StatsPage() {
           </div>
         </div>
 
-        {/* Integrated Asymmetric Yellow Geometric Panel */}
-        <div className="hidden lg:block border-b-[5px] border-grid bg-block-yellow h-full min-h-[300px]" />
+        {/* Cell 2: Integrated Yellow Geometric Slab */}
+        <div className="hidden lg:block bg-block-yellow h-full w-full" />
       </section>
 
       {/* =========================================================================
-          BOTTOM SECTION: SECONDARY LOWER WORKSPACE AREA
-          Fills 100% of remaining vertical space with aligned blue/red and timer/calendar blocks
+          LOWER SECTION: UNIFIED WORKSPACE GRID
+          Zero floating boxes: directly divided cells matching the De Stijl geometry
          ========================================================================= */}
-      <section className="flex-1 min-h-[380px] grid grid-cols-1 lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1.1fr)] xl:grid-cols-[minmax(0,1.3fr)_minmax(0,1.1fr)] gap-[5px] bg-grid">
-        {/* LOWER WORKSPACE - COLUMN 1: TODAY DATE & TASKS LEDGER */}
-        <div className="flex min-h-0 flex-col bg-canvas border-2 border-grid h-full">
-          {/* Date Numeral + Action Controls Header */}
-          <div className="border-b-2 border-grid p-4 xl:p-5">
-            <div className="flex items-baseline justify-between gap-3">
-              <div className="flex items-baseline gap-3">
-                <span className="font-display text-5xl xl:text-6xl font-black leading-none tabular-nums text-foreground">
-                  {dayNum}
-                </span>
-                <div>
-                  <h2 className="font-display text-xl xl:text-2xl uppercase leading-none tracking-tight">{weekday}</h2>
-                  <p className="mt-0.5 text-[9px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
-                    {monthYear}
-                  </p>
+      <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.25fr)_130px_minmax(0,1.1fr)] xl:grid-cols-[minmax(0,1.3fr)_160px_minmax(0,1.1fr)] gap-[4px] bg-grid h-full">
+        {/* Cell 1: Today Date & Tasks Ledger */}
+        <div className="bg-canvas flex flex-col h-full justify-between">
+          <div>
+            {/* Date Header */}
+            <div className="border-b-2 border-grid p-4 xl:p-5">
+              <div className="flex items-baseline justify-between gap-3">
+                <div className="flex items-baseline gap-3">
+                  <span className="font-display text-5xl xl:text-6xl font-black leading-none tabular-nums text-foreground">
+                    {dayNum}
+                  </span>
+                  <div>
+                    <h2 className="font-display text-xl xl:text-2xl uppercase leading-none tracking-tight">{weekday}</h2>
+                    <p className="mt-0.5 text-[9px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
+                      {monthYear}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <button
+                    onClick={() => morph(() => setDayOffset(Math.max(-3, dayOffset - 1)))}
+                    disabled={dayOffset <= -3}
+                    className="ghost-chip px-2 py-1"
+                    title="Previous Day"
+                  >
+                    <ChevronLeft className="size-3" />
+                  </button>
+                  <button
+                    onClick={() => morph(() => setDayOffset(0))}
+                    className="ghost-chip px-2 py-1 text-[9px]"
+                  >
+                    Today
+                  </button>
+                  <button
+                    onClick={() => morph(() => setDayOffset(Math.min(0, dayOffset + 1)))}
+                    disabled={dayOffset >= 0}
+                    className="ghost-chip px-2 py-1"
+                    title="Next Day"
+                  >
+                    <ChevronRight className="size-3" />
+                  </button>
+                  <button
+                    onClick={() => morph(() => setSortByEnergy(!sortByEnergy))}
+                    className={`ghost-chip flex items-center gap-1 text-[9px] py-1 ${sortByEnergy ? "bg-block-ink text-canvas" : ""}`}
+                    title="Sort by Energy"
+                  >
+                    <span className="flex gap-0.5">
+                      <i className="size-1.5 bg-block-red" />
+                      <i className="size-1.5 bg-block-yellow" />
+                      <i className="size-1.5 bg-block-blue" />
+                    </span>
+                    Sort by energy
+                  </button>
                 </div>
               </div>
-              <div className="flex items-center gap-1.5">
-                <button
-                  onClick={() => morph(() => setDayOffset(Math.max(-3, dayOffset - 1)))}
-                  disabled={dayOffset <= -3}
-                  className="ghost-chip px-2 py-1"
-                  title="Previous Day"
-                >
-                  <ChevronLeft className="size-3" />
-                </button>
-                <button
-                  onClick={() => morph(() => setDayOffset(0))}
-                  className="ghost-chip px-2 py-1 text-[9px]"
-                >
-                  Today
-                </button>
-                <button
-                  onClick={() => morph(() => setDayOffset(Math.min(0, dayOffset + 1)))}
-                  disabled={dayOffset >= 0}
-                  className="ghost-chip px-2 py-1"
-                  title="Next Day"
-                >
-                  <ChevronRight className="size-3" />
-                </button>
-                <button
-                  onClick={() => morph(() => setSortByEnergy(!sortByEnergy))}
-                  className={`ghost-chip flex items-center gap-1 text-[9px] py-1 ${sortByEnergy ? "bg-block-ink text-canvas" : ""}`}
-                  title="Sort by Energy"
-                >
-                  <span className="flex gap-0.5">
-                    <i className="size-1.5 bg-block-red" />
-                    <i className="size-1.5 bg-block-yellow" />
-                    <i className="size-1.5 bg-block-blue" />
-                  </span>
-                  Sort by energy
-                </button>
+
+              <div className="mt-3 flex items-center justify-between text-[9px] font-black uppercase tracking-[0.16em] text-muted-foreground border-t border-grid/20 pt-2">
+                <span>{open.length} Open · {done.length} Done · {plannedMin}M Planned</span>
+                <span>Wraps ~9:25AM</span>
               </div>
             </div>
 
-            <div className="mt-3 flex items-center justify-between text-[9px] font-black uppercase tracking-[0.16em] text-muted-foreground border-t border-grid/20 pt-2">
-              <span>{open.length} Open · {done.length} Done · {plannedMin}M Planned</span>
-              <span>Wraps ~9:25AM</span>
-            </div>
-          </div>
+            {/* Quick add task input */}
+            <form onSubmit={handleAddTask} className="border-b-2 border-grid bg-canvas px-4 py-2.5">
+              <input
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+                placeholder="Add to today..."
+                className="w-full bg-transparent text-xs font-medium outline-none placeholder:text-muted-foreground"
+              />
+            </form>
 
-          {/* Quick add input */}
-          <form onSubmit={handleAddTask} className="border-b-2 border-grid bg-canvas px-4 py-2.5">
-            <input
-              value={newTitle}
-              onChange={(e) => setNewTitle(e.target.value)}
-              placeholder="Add to today..."
-              className="w-full bg-transparent text-xs font-medium outline-none placeholder:text-muted-foreground"
-            />
-          </form>
-
-          {/* Task rows ledger */}
-          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+            {/* Task list rows */}
             <div className="divide-y divide-grid/20">
               {open.map((t) => {
                 const project = projectById(t.projectId);
@@ -353,7 +356,7 @@ export function StatsPage() {
                   <div
                     key={t.id}
                     onClick={() => selectTask(t.id)}
-                    className="group flex cursor-pointer items-center justify-between px-4 py-3 transition-colors hover:bg-panel"
+                    className="group flex cursor-pointer items-center justify-between px-4 py-2.5 xl:py-3 transition-colors hover:bg-panel"
                   >
                     <div className="flex items-center gap-3">
                       <button
@@ -379,7 +382,7 @@ export function StatsPage() {
             </div>
 
             {done.length > 0 && (
-              <div className="mt-3 border-t-2 border-grid">
+              <div className="border-t-2 border-grid">
                 <div className="bg-panel px-4 py-1.5 text-[8.5px] font-black uppercase tracking-[0.18em] text-muted-foreground border-b border-grid/20">
                   Done · {done.length}
                 </div>
@@ -390,7 +393,7 @@ export function StatsPage() {
                       <div
                         key={t.id}
                         onClick={() => toggle(t.id)}
-                        className="group flex cursor-pointer items-center justify-between px-4 py-2 hover:opacity-100 transition-opacity"
+                        className="group flex cursor-pointer items-center justify-between px-4 py-1.5 hover:opacity-100 transition-opacity"
                       >
                         <div className="flex items-center gap-3">
                           <span className={`h-3.5 w-1 flex-shrink-0 ${project ? toneBg[project.tone] : "bg-block-blue"}`} />
@@ -406,13 +409,16 @@ export function StatsPage() {
           </div>
         </div>
 
-        {/* LOWER WORKSPACE - COLUMN 2 & 3: ALIGNED GEOMETRIC PANELS (BLUE/RED) & UTILITY RAIL */}
-        <div className="hidden lg:grid grid-cols-[120px_minmax(0,1fr)] xl:grid-cols-[140px_minmax(0,1fr)] grid-rows-2 gap-[5px] h-full">
-          {/* Row 1, Col 1: Solid Blue Panel (perfectly aligned with Focus Timer) */}
-          <div className="border-2 border-grid bg-block-blue h-full" />
+        {/* Cell 2: Contiguous Stacked Blue and Red Geometric Slabs */}
+        <div className="hidden lg:grid grid-rows-2 gap-[4px] h-full">
+          <div className="bg-block-blue h-full w-full" />
+          <div className="bg-block-red h-full w-full" />
+        </div>
 
-          {/* Row 1, Col 2: Focus Timer (perfectly aligned with Blue Panel) */}
-          <div className="flex flex-col justify-between border-2 border-grid bg-canvas p-4 xl:p-5 h-full">
+        {/* Cell 3: Contiguous Stacked Focus Timer & Google Calendar */}
+        <div className="hidden lg:grid grid-rows-2 gap-[4px] h-full">
+          {/* Focus Timer */}
+          <div className="bg-canvas p-4 xl:p-5 flex flex-col justify-between h-full">
             <div>
               <div className="flex border-2 border-grid">
                 <button
@@ -462,11 +468,8 @@ export function StatsPage() {
             </div>
           </div>
 
-          {/* Row 2, Col 1: Solid Red Panel (perfectly aligned with Google Calendar) */}
-          <div className="border-2 border-grid bg-block-red h-full" />
-
-          {/* Row 2, Col 2: Google Calendar (perfectly aligned with Red Panel) */}
-          <div className="flex flex-col justify-between border-2 border-grid bg-canvas p-4 xl:p-5 h-full">
+          {/* Google Calendar */}
+          <div className="bg-canvas p-4 xl:p-5 flex flex-col justify-between h-full">
             <div>
               <div className="flex items-center justify-between">
                 <span className="text-[9px] font-black uppercase tracking-[0.16em]">Google Calendar</span>
