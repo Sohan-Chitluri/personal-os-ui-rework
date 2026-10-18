@@ -425,3 +425,49 @@ a.nav-tab { display: inline-flex; align-items: center; white-space: nowrap; }
   > i { flex: 1; width: 6px; margin-block: 0.6rem; background: linear-gradient(to bottom, var(--block-red), var(--block-yellow), var(--block-blue), var(--canvas)); }
   > span { writing-mode: vertical-rl; font-size: 0.5rem; font-weight: 900; text-transform: uppercase; letter-spacing: 0.22em; color: var(--muted-foreground); }
 }
+
+.calendar-hatched {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 8px,
+    color-mix(in oklab, var(--grid) 18%, transparent) 8px,
+    color-mix(in oklab, var(--grid) 18%, transparent) 16px
+  );
+}
+
+.flow-timeline-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 2px solid var(--grid);
+  padding: 0.85rem 1rem;
+  background: var(--canvas);
+  transition: background 150ms ease;
+}
+.flow-timeline-row:hover {
+  background: var(--panel);
+}
+
+.project-crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.65rem;
+  border: 2px solid var(--grid);
+  font-size: 0.68rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  background: var(--canvas);
+  transition: background 150ms ease, color 150ms ease, transform 150ms ease;
+}
+.project-crumb:hover {
+  background: var(--panel);
+  transform: translateY(-1px);
+}
+.project-crumb-active {
+  background: var(--block-ink);
+  color: var(--canvas);
+}
+

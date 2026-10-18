@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { makeTodayTasks, type Task } from "./blockday-data";
+import { makeTodayTasks, type Mood, type Task } from "./blockday-data";
 
 export function morph(fn: () => void) {
   const d = document as Document & { startViewTransition?: (cb: () => void) => void };
@@ -15,6 +15,7 @@ const lengths: Record<TimerMode, number> = { Focus: 25 * 60, Break: 5 * 60 };
 type Store = {
   tasks: Task[];
   setTasks: (fn: (t: Task[]) => Task[]) => void;
+  addTask: (title: string, projectId?: string, estimate?: number) => void;
   archived: string[];
   archive: (ids: string[]) => void;
   dayOffset: number;
@@ -24,6 +25,10 @@ type Store = {
   toggleTheme: () => void;
   query: string;
   setQuery: (q: string) => void;
+  selectedProjectId: string;
+  setSelectedProjectId: (id: string) => void;
+  moodFilter: Mood | "All";
+  setMoodFilter: (m: Mood | "All") => void;
   timer: { mode: TimerMode; seconds: number; total: number; running: boolean; sessions: number; taskId: string };
   setMode: (m: TimerMode) => void;
   toggleTimer: () => void;
@@ -42,6 +47,8 @@ export function BlockdayProvider({ children }: { children: ReactNode }) {
   const [today, setToday] = useState<Date | null>(null);
   const [isDark, setIsDark] = useState(false);
   const [query, setQuery] = useState("");
+  const [selectedProjectId, setSelectedProjectId] = useState("blockday");
+  const [moodFilter, setMoodFilter] = useState<Mood | "All">("All");
   const [mode, setModeState] = useState<TimerMode>("Focus");
   const [seconds, setSeconds] = useState(lengths.Focus);
   const [running, setRunning] = useState(false);
@@ -54,10 +61,11 @@ export function BlockdayProvider({ children }: { children: ReactNode }) {
     try {
       const raw = localStorage.getItem(KEY);
       if (raw) {
-        const d = JSON.parse(raw) as { tasks?: Task[]; archived?: string[]; isDark?: boolean };
+        const d = JSON.parse(raw) as { tasks?: Task[]; archived?: string[]; isDark?: boolean; selectedProjectId?: string };
         if (d.tasks) setTasksState(d.tasks);
         if (d.archived) setArchived(d.archived);
         if (d.isDark) setIsDark(true);
+        if (d.selectedProjectId) setSelectedProjectId(d.selectedProjectId);
       }
     } catch { localStorage.removeItem(KEY); }
     setLoaded(true);
@@ -65,8 +73,8 @@ export function BlockdayProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", isDark);
-    if (loaded) localStorage.setItem(KEY, JSON.stringify({ tasks, archived, isDark }));
-  }, [tasks, archived, isDark, loaded]);
+    if (loaded) localStorage.setItem(KEY, JSON.stringify({ tasks, archived, isDark, selectedProjectId }));
+  }, [tasks, archived, isDark, selectedProjectId, loaded]);
 
   useEffect(() => {
     if (!running) return;
@@ -78,21 +86,37 @@ export function BlockdayProvider({ children }: { children: ReactNode }) {
   }, [running, mode]);
 
   const setTasks = useCallback((fn: (t: Task[]) => Task[]) => setTasksState(fn), []);
+  const addTask = useCallback((title: string, projectId = "blockday", estimate = 15) => {
+    const trimmed = title.trim();
+    if (!trimmed) return;
+    const newTask: Task = {
+      id: `t_${Date.now()}`,
+      title: trimmed,
+      projectId,
+      dueIn: 0,
+      estimate,
+      mood: "Clear",
+      done: false,
+    };
+    morph(() => setTasksState((ts) => [newTask, ...ts]));
+  }, []);
   const setMode = useCallback((m: TimerMode) => { setModeState(m); setSeconds(lengths[m]); setRunning(false); }, []);
 
   const value = useMemo<Store>(() => ({
-    tasks, setTasks, archived,
+    tasks, setTasks, addTask, archived,
     archive: (ids) => setArchived((a) => [...a, ...ids]),
     dayOffset, setDayOffset, today, isDark,
     toggleTheme: () => setIsDark((v) => !v),
     query, setQuery,
+    selectedProjectId, setSelectedProjectId,
+    moodFilter, setMoodFilter,
     timer: { mode, seconds, total: lengths[mode], running, sessions, taskId },
     setMode,
     toggleTimer: () => setRunning((r) => !r),
     resetTimer: () => { setSeconds(lengths[mode]); setRunning(false); },
     skipTimer: () => { if (mode === "Focus") setSessions((n) => n + 1); setMode(mode === "Focus" ? "Break" : "Focus"); },
     selectTask: setTaskId,
-  }), [tasks, setTasks, archived, dayOffset, today, isDark, query, mode, seconds, running, sessions, taskId, setMode]);
+  }), [tasks, setTasks, addTask, archived, dayOffset, today, isDark, query, selectedProjectId, moodFilter, mode, seconds, running, sessions, taskId, setMode]);
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
