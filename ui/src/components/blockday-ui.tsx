@@ -1,7 +1,7 @@
 import { Link } from "@tanstack/react-router";
-import { Check, ChevronLeft, ChevronRight, Moon, Search, Sun } from "lucide-react";
+import { AlertTriangle, Check, ChevronLeft, ChevronRight, Moon, RefreshCw, Search, Sun, X } from "lucide-react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
-import { dailyCompletions, deadline, projectById, type Task, type Tone } from "@/lib/blockday-data";
+import { dailyCompletions, deadline, projectById, type Mood, type Task, type Tone } from "@/lib/blockday-data";
 import { dayLabel, morph, useBlockday } from "@/lib/blockday-store";
 
 export const toneBg: Record<Tone, string> = { red: "bg-block-red", blue: "bg-block-blue", yellow: "bg-block-yellow", neutral: "bg-canvas" };
@@ -38,29 +38,179 @@ export function DeadlineStrip({ dueIn }: { dueIn: number | null }) {
   return <span aria-hidden className={`deadline-strip deadline-${d.kind}`} />;
 }
 
-export function TaskRow({ task, onToggle, compact }: { task: Task; onToggle?: (() => void) | undefined; compact?: boolean }) {
+export interface TaskRowProps {
+  task: Task;
+  onToggle?: (() => void) | undefined;
+  onSelect?: (() => void) | undefined;
+  isSelected?: boolean;
+  compact?: boolean;
+  className?: string;
+}
+
+export function TaskRow({ task, onToggle, onSelect, isSelected, compact, className = "" }: TaskRowProps) {
   const project = projectById(task.projectId);
   const d = deadline(task.dueIn);
   return (
-    <article style={{ viewTransitionName: `task-${task.id}` }} className={`task-row ${task.done ? "task-done" : ""} ${compact ? "min-h-0" : ""}`}>
+    <article
+      style={{ viewTransitionName: `task-${task.id}` }}
+      onClick={onSelect}
+      className={`task-row ${task.done ? "task-done" : ""} ${isSelected ? "task-selected border-l-4 border-grid font-bold" : ""} ${compact ? "min-h-0 py-2" : ""} ${onSelect ? "cursor-pointer" : ""} ${className}`}
+    >
       <DeadlineStrip dueIn={task.dueIn} />
       {onToggle && (
-        <button aria-label={task.done ? `Mark ${task.title} incomplete` : `Complete ${task.title}`} onClick={onToggle} className="check-button">
+        <button
+          type="button"
+          aria-label={task.done ? `Mark ${task.title} incomplete` : `Complete ${task.title}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggle();
+          }}
+          className="check-button"
+        >
           {task.done && <Check />}
         </button>
       )}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           {task.frog && !task.done && <span className="frog-label">Eat the frog</span>}
-          <h2 className="truncate text-[16px] font-bold">{task.title}</h2>
+          <h2 className={`truncate ${compact ? "text-xs" : "text-[16px] font-bold"}`}>{task.title}</h2>
         </div>
-        <div className="mt-1.5 flex items-center gap-3 text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+        <div className="mt-1 flex items-center gap-3 text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
           {project && <span className="flex items-center gap-1.5"><span className={`project-swatch ${toneBg[project.tone]}`} />{project.name}</span>}
-          <span>{task.estimate} min</span><span>{task.mood}</span>
+          <span>{task.estimate} min</span>
+          {!compact && <span>{task.mood}</span>}
+          {task.revision > 1 && <span className="font-mono text-[8px] opacity-60">r{task.revision}</span>}
         </div>
       </div>
-      {!task.done && <span className={`deadline-label deadline-label-${d.kind}`}>{d.label}</span>}
+      {!task.done && !compact && <span className={`deadline-label deadline-label-${d.kind}`}>{d.label}</span>}
     </article>
+  );
+}
+
+export function DemoModeBanner({ onExit }: { onExit?: () => void }) {
+  return (
+    <aside
+      aria-label="Demo mode notice"
+      className="mb-3 flex items-center justify-between border-2 border-block-blue bg-block-blue/15 p-2 text-xs font-bold text-foreground"
+    >
+      <div className="flex items-center gap-2">
+        <span className="bg-block-blue px-1.5 py-0.5 text-[8.5px] font-black uppercase tracking-wider text-on-primary shrink-0">
+          Demo Mode
+        </span>
+        <span className="text-muted-foreground">
+          Local only: sample data in use. Changes are not persisted to the backend.
+        </span>
+      </div>
+      {onExit && (
+        <button
+          onClick={onExit}
+          className="border border-grid bg-canvas px-2 py-0.5 text-[9px] font-black uppercase tracking-wider hover:bg-block-ink hover:text-canvas transition-colors"
+        >
+          Exit Demo
+        </button>
+      )}
+    </aside>
+  );
+}
+
+export function TaskConflictBanner({
+  message,
+  onResolve,
+  onDismiss,
+}: {
+  message: string;
+  onResolve?: () => void;
+  onDismiss?: () => void;
+}) {
+  return (
+    <aside
+      aria-label="Task conflict alert"
+      className="mb-3 flex items-center justify-between border-2 border-block-yellow bg-block-yellow/20 p-2 text-xs font-bold text-foreground"
+    >
+      <div className="flex items-center gap-2">
+        <AlertTriangle className="size-4 shrink-0 text-block-yellow" />
+        <span className="bg-block-yellow px-1.5 py-0.5 text-[8.5px] font-black uppercase tracking-wider text-block-ink shrink-0">
+          Conflict 409
+        </span>
+        <span>{message}</span>
+      </div>
+      <div className="flex items-center gap-2">
+        {onResolve && (
+          <button
+            onClick={onResolve}
+            className="flex items-center gap-1 border border-grid bg-canvas px-2 py-0.5 text-[9px] font-black uppercase tracking-wider hover:bg-block-ink hover:text-canvas"
+          >
+            <RefreshCw className="size-2.5" /> Refresh
+          </button>
+        )}
+        {onDismiss && (
+          <button onClick={onDismiss} aria-label="Dismiss conflict alert" className="text-muted-foreground hover:text-foreground">
+            <X className="size-3.5" />
+          </button>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+export function TaskErrorBanner({
+  message,
+  onDismiss,
+  onEnableDemo,
+}: {
+  message: string;
+  onDismiss?: () => void;
+  onEnableDemo?: () => void;
+}) {
+  const isNetwork =
+    message.toLowerCase().includes("fetch") ||
+    message.toLowerCase().includes("network") ||
+    message.toLowerCase().includes("offline");
+  const isAuth = message.toLowerCase().includes("unauthorized") || message.includes("401");
+  const isServer = message.toLowerCase().includes("server error") || message.includes("500");
+
+  let badge = "Error";
+  if (isNetwork) badge = "Network Offline";
+  else if (isAuth) badge = "Auth 401";
+  else if (isServer) badge = "Server 500";
+
+  return (
+    <aside
+      aria-label="Task error notice"
+      className="mb-3 flex items-center justify-between border-2 border-block-red bg-block-red/15 p-2 text-xs font-bold text-foreground"
+    >
+      <div className="flex items-center gap-2 min-w-0">
+        <AlertTriangle className="size-4 shrink-0 text-block-red" />
+        <span className="bg-block-red px-1.5 py-0.5 text-[8.5px] font-black uppercase tracking-wider text-on-primary shrink-0">
+          {badge}
+        </span>
+        <span className="truncate">{message}</span>
+      </div>
+      <div className="flex items-center gap-2 shrink-0">
+        {onEnableDemo && isNetwork && (
+          <button
+            onClick={onEnableDemo}
+            className="flex items-center gap-1 border border-grid bg-canvas px-2 py-0.5 text-[9px] font-black uppercase tracking-wider hover:bg-block-ink hover:text-canvas"
+          >
+            Switch to Demo
+          </button>
+        )}
+        {onDismiss && (
+          <button onClick={onDismiss} aria-label="Dismiss error notice" className="text-muted-foreground hover:text-foreground">
+            <X className="size-3.5" />
+          </button>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+export function TaskEmptyState({ message = "No blocks match this view." }: { message?: string }) {
+  return (
+    <div className="border-[3px] border-dashed border-grid p-8 text-center">
+      <p className="font-display text-2xl uppercase">Clear space.</p>
+      <p className="mt-2 text-xs text-muted-foreground">{message}</p>
+    </div>
   );
 }
 

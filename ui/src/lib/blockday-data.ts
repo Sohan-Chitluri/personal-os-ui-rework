@@ -1,21 +1,7 @@
-// Representative sample data. Everything here is static so all pages agree.
-export type Tone = "red" | "blue" | "yellow" | "neutral";
-export type Mood = "Deep" | "Clear" | "Easy" | "Creative";
+import type { Mood, Task, Tone } from "./task-types";
+export type { Mood, Task, Tone };
 
 export type Project = { id: string; name: string; tone: Tone; parent?: string; progress: number; active?: boolean; summary: string };
-export type Task = {
-  id: string;
-  title: string;
-  projectId: string;
-  /** Days from the viewed day. Negative = overdue, null = no deadline. */
-  dueIn: number | null;
-  estimate: number;
-  mood: Mood;
-  frog?: boolean;
-  done: boolean;
-  /** Minutes from 06:00 when scheduled in Flow; undefined = unscheduled. */
-  start?: number;
-};
 
 export const projects: Project[] = [
   { id: "studio", name: "Studio", tone: "red", progress: 62, active: true, summary: "Client work and the weekly studio rhythm." },
@@ -30,33 +16,33 @@ export const projectById = (id: string) => projects.find((p) => p.id === id);
 
 export function makeTodayTasks(): Task[] {
   return [
-    { id: "t1", title: "Resolve the onboarding flow", projectId: "blockday", dueIn: 0, estimate: 50, mood: "Deep", frog: true, done: false, start: 180 },
-    { id: "t2", title: "Send invoice to Halden & Co.", projectId: "studio", dueIn: -2, estimate: 15, mood: "Easy", done: false, start: 120 },
-    { id: "t3", title: "Write launch page headline", projectId: "blockday", dueIn: 2, estimate: 25, mood: "Creative", done: false, start: 300 },
-    { id: "t4", title: "Sketch three logo directions", projectId: "identity", dueIn: 5, estimate: 45, mood: "Creative", done: false },
-    { id: "t5", title: "Water the big plants", projectId: "home", dueIn: null, estimate: 10, mood: "Easy", done: false, start: 600 },
-    { id: "t6", title: "Read two chapters", projectId: "reading", dueIn: null, estimate: 30, mood: "Clear", done: false },
-    { id: "t7", title: "Review interaction notes", projectId: "studio", dueIn: 0, estimate: 25, mood: "Clear", done: true, start: 60 },
-    { id: "t8", title: "Morning pages", projectId: "personal", dueIn: null, estimate: 20, mood: "Easy", done: true, start: 0 },
-    { id: "t9", title: "Reply to Sam about Friday", projectId: "studio", dueIn: 0, estimate: 10, mood: "Easy", done: true },
+    { id: "t1", title: "Resolve the onboarding flow", projectId: "blockday", dueIn: 0, estimate: 50, mood: "Deep", frog: true, done: false, start: 180, revision: 1 },
+    { id: "t2", title: "Send invoice to Halden & Co.", projectId: "studio", dueIn: -2, estimate: 15, mood: "Easy", done: false, start: 120, revision: 1 },
+    { id: "t3", title: "Write launch page headline", projectId: "blockday", dueIn: 2, estimate: 25, mood: "Creative", done: false, start: 300, revision: 1 },
+    { id: "t4", title: "Sketch three logo directions", projectId: "identity", dueIn: 5, estimate: 45, mood: "Creative", done: false, revision: 1 },
+    { id: "t5", title: "Water the big plants", projectId: "home", dueIn: null, estimate: 10, mood: "Easy", done: false, start: 600, revision: 1 },
+    { id: "t6", title: "Read two chapters", projectId: "reading", dueIn: null, estimate: 30, mood: "Clear", done: false, revision: 1 },
+    { id: "t7", title: "Review interaction notes", projectId: "studio", dueIn: 0, estimate: 25, mood: "Clear", done: true, start: 60, revision: 1 },
+    { id: "t8", title: "Morning pages", projectId: "personal", dueIn: null, estimate: 20, mood: "Easy", done: true, start: 0, revision: 1 },
+    { id: "t9", title: "Reply to Sam about Friday", projectId: "studio", dueIn: 0, estimate: 10, mood: "Easy", done: true, revision: 1 },
   ];
 }
 
 export const historicalDays: Record<number, Task[]> = {
   [-1]: [
-    { id: "h1", title: "Draft onboarding copy", projectId: "blockday", dueIn: 1, estimate: 40, mood: "Creative", done: true },
-    { id: "h2", title: "Studio critique prep", projectId: "studio", dueIn: 0, estimate: 30, mood: "Clear", done: true },
-    { id: "h3", title: "Send invoice to Halden & Co.", projectId: "studio", dueIn: -1, estimate: 15, mood: "Easy", done: false },
-    { id: "h4", title: "Evening run", projectId: "personal", dueIn: null, estimate: 35, mood: "Easy", done: true },
+    { id: "h1", title: "Draft onboarding copy", projectId: "blockday", dueIn: 1, estimate: 40, mood: "Creative", done: true, revision: 1 },
+    { id: "h2", title: "Studio critique prep", projectId: "studio", dueIn: 0, estimate: 30, mood: "Clear", done: true, revision: 1 },
+    { id: "h3", title: "Send invoice to Halden & Co.", projectId: "studio", dueIn: -1, estimate: 15, mood: "Easy", done: false, revision: 1 },
+    { id: "h4", title: "Evening run", projectId: "personal", dueIn: null, estimate: 35, mood: "Easy", done: true, revision: 1 },
   ],
   [-2]: [
-    { id: "h5", title: "Map the six page layouts", projectId: "blockday", dueIn: 0, estimate: 60, mood: "Deep", frog: true, done: true },
-    { id: "h6", title: "Order shelf brackets", projectId: "home", dueIn: 3, estimate: 10, mood: "Easy", done: true },
-    { id: "h7", title: "Read two chapters", projectId: "reading", dueIn: null, estimate: 30, mood: "Clear", done: false },
+    { id: "h5", title: "Map the six page layouts", projectId: "blockday", dueIn: 0, estimate: 60, mood: "Deep", frog: true, done: true, revision: 1 },
+    { id: "h6", title: "Order shelf brackets", projectId: "home", dueIn: 3, estimate: 10, mood: "Easy", done: true, revision: 1 },
+    { id: "h7", title: "Read two chapters", projectId: "reading", dueIn: null, estimate: 30, mood: "Clear", done: false, revision: 1 },
   ],
   [-3]: [
-    { id: "h8", title: "Weekly studio update", projectId: "studio", dueIn: 0, estimate: 15, mood: "Easy", done: true },
-    { id: "h9", title: "Moodboard for identity refresh", projectId: "identity", dueIn: 4, estimate: 45, mood: "Creative", done: true },
+    { id: "h8", title: "Weekly studio update", projectId: "studio", dueIn: 0, estimate: 15, mood: "Easy", done: true, revision: 1 },
+    { id: "h9", title: "Moodboard for identity refresh", projectId: "identity", dueIn: 4, estimate: 45, mood: "Creative", done: true, revision: 1 },
   ],
 };
 

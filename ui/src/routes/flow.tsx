@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Check, ChevronLeft, ChevronRight, Clock, Play, RotateCcw } from "lucide-react";
 import { useState } from "react";
-import { toneBg } from "@/components/blockday-ui";
+import { DemoModeBanner, TaskConflictBanner, TaskErrorBanner, toneBg } from "@/components/blockday-ui";
 import { historicalDays, projectById, type Task } from "@/lib/blockday-data";
 import { formatClock, morph, useBlockday } from "@/lib/blockday-store";
 
@@ -22,8 +22,16 @@ export const Route = createFileRoute("/flow")({
 export function FlowPage() {
   const {
     tasks,
-    setTasks,
     addTask,
+    toggleTask,
+    conflictError,
+    clearConflict,
+    error,
+    clearError,
+    refetchTasks,
+    isDemoMode,
+    enableDemoMode,
+    disableDemoMode,
     dayOffset,
     setDayOffset,
     today,
@@ -43,13 +51,13 @@ export function FlowPage() {
 
   const toggle = (id: string) => {
     if (!isToday) return;
-    morph(() => setTasks((ts) => ts.map((t) => (t.id === id ? { ...t, done: !t.done } : t))));
+    void toggleTask(id).catch(() => {});
   };
 
   const handleAddTask = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim()) return;
-    addTask(newTitle.trim(), "blockday", 15);
+    void addTask(newTitle.trim(), "blockday", 15).catch(() => {});
     setNewTitle("");
   };
 
@@ -248,6 +256,30 @@ export function FlowPage() {
 
         {/* Task List */}
         <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+          {isDemoMode && (
+            <div className="p-3 pb-0">
+              <DemoModeBanner onExit={disableDemoMode} />
+            </div>
+          )}
+          {conflictError && (
+            <div className="p-3">
+              <TaskConflictBanner
+                message={`Revision conflict: ${conflictError.message}`}
+                onResolve={refetchTasks}
+                onDismiss={clearConflict}
+              />
+            </div>
+          )}
+          {error && !conflictError && (
+            <div className="p-3">
+              <TaskErrorBanner
+                message={error.message}
+                onDismiss={clearError}
+                onEnableDemo={enableDemoMode}
+              />
+            </div>
+          )}
+
           {/* Open Tasks */}
           <div className="divide-y divide-grid/20">
             {open.map((t) => {

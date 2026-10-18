@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { ArchiveRestore, Zap } from "lucide-react";
-import { GridPanel, HeatMap, TaskRow, toneBg } from "@/components/blockday-ui";
+import { DemoModeBanner, GridPanel, HeatMap, TaskConflictBanner, TaskEmptyState, TaskErrorBanner, TaskRow, toneBg } from "@/components/blockday-ui";
 import { MondrianMosaic } from "@/components/mondrian-mosaic";
 import { dailyCompletions, historicalDays, projectById, type Task } from "@/lib/blockday-data";
 import { dayLabel, morph, useBlockday } from "@/lib/blockday-store";
@@ -20,7 +20,23 @@ export const Route = createFileRoute("/")({
 });
 
 function TodayPage() {
-  const { tasks, setTasks, archived, archive, query, dayOffset, today } = useBlockday();
+  const {
+    tasks,
+    toggleTask,
+    conflictError,
+    clearConflict,
+    error,
+    clearError,
+    refetchTasks,
+    isDemoMode,
+    enableDemoMode,
+    disableDemoMode,
+    archived,
+    archive,
+    query,
+    dayOffset,
+    today,
+  } = useBlockday();
   const replay = dayOffset < 0;
   const dayTasks: Task[] = replay ? (historicalDays[dayOffset] ?? []) : tasks;
   const q = query.trim().toLowerCase();
@@ -33,7 +49,10 @@ function TodayPage() {
   const plannedMin = sorted.reduce((sum, t) => sum + t.estimate, 0);
   const capacity = dayTasks.length ? Math.round((doneToday.length / dayTasks.length) * 100) : 0;
 
-  const toggle = (id: string) => setTasks((ts) => ts.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
+  const toggle = (id: string) => {
+    if (replay) return;
+    void toggleTask(id).catch(() => {});
+  };
 
   const date = new Date(today ?? Date.now());
   date.setDate(date.getDate() + dayOffset);
@@ -69,15 +88,28 @@ function TodayPage() {
           label={`Blocks · ${sorted.length}`}
           aside={<span className="text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">Sorted by deadline</span>}
         >
+          {isDemoMode && <DemoModeBanner onExit={disableDemoMode} />}
+          {conflictError && (
+            <TaskConflictBanner
+              message={`Revision conflict: ${conflictError.message}`}
+              onResolve={refetchTasks}
+              onDismiss={clearConflict}
+            />
+          )}
+          {error && !conflictError && (
+            <TaskErrorBanner
+              message={error.message}
+              onDismiss={clearError}
+              onEnableDemo={enableDemoMode}
+            />
+          )}
+
           <div className="today-ledger">
             {sorted.map((t) => (
               <TaskRow key={t.id} task={t} onToggle={replay ? undefined : () => toggle(t.id)} />
             ))}
             {!sorted.length && (
-              <div className="border-[3px] border-dashed border-grid p-10 text-center">
-                <p className="font-display text-2xl uppercase">Clear space.</p>
-                <p className="mt-2 text-xs text-muted-foreground">No blocks match this view.</p>
-              </div>
+              <TaskEmptyState message="No blocks match this view." />
             )}
           </div>
         </GridPanel>
@@ -89,9 +121,10 @@ function TodayPage() {
             <button
               disabled={!doneToday.length || replay}
               onClick={() => morph(() => archive(doneToday.map((t) => t.id)))}
-              className="flex items-center gap-1.5 border border-grid px-2 py-1 text-[9px] font-black uppercase tracking-[0.12em] text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+              title="Locally hide completed blocks on this device"
+              className="flex items-center gap-1.5 border border-grid px-2 py-1 text-[9px] font-black uppercase tracking-[0.12em] text-muted-foreground hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 transition-colors"
             >
-              <ArchiveRestore className="size-3" /> Move to completed archive
+              <ArchiveRestore className="size-3" /> Archive (this device)
             </button>
           }
         >

@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Check, Plus } from "lucide-react";
 import { useState } from "react";
-import { GridPanel, toneBg, toneText } from "@/components/blockday-ui";
+import { GridPanel, DemoModeBanner, TaskConflictBanner, TaskEmptyState, TaskErrorBanner, toneBg, toneText } from "@/components/blockday-ui";
 import { advancements, projectById, projects, workspace } from "@/lib/blockday-data";
 import { morph, useBlockday } from "@/lib/blockday-store";
 
@@ -20,7 +20,21 @@ export const Route = createFileRoute("/projects")({
 });
 
 export function ProjectsPage() {
-  const { tasks, setTasks, addTask, selectedProjectId, setSelectedProjectId } = useBlockday();
+  const {
+    tasks,
+    addTask,
+    toggleTask,
+    conflictError,
+    clearConflict,
+    error,
+    clearError,
+    refetchTasks,
+    isDemoMode,
+    enableDemoMode,
+    disableDemoMode,
+    selectedProjectId,
+    setSelectedProjectId,
+  } = useBlockday();
   const [taskInput, setTaskInput] = useState("");
 
   const selected = projectById(selectedProjectId) ?? projects[0]!;
@@ -36,12 +50,12 @@ export function ProjectsPage() {
   const handleAddTask = (e: React.FormEvent) => {
     e.preventDefault();
     if (!taskInput.trim()) return;
-    addTask(taskInput.trim(), selected.id, 20);
+    void addTask(taskInput.trim(), selected.id, 20).catch(() => {});
     setTaskInput("");
   };
 
-  const toggleTask = (id: string) => {
-    morph(() => setTasks((ts) => ts.map((t) => (t.id === id ? { ...t, done: !t.done } : t))));
+  const handleToggleTask = (id: string) => {
+    void toggleTask(id).catch(() => {});
   };
 
   return (
@@ -170,11 +184,27 @@ export function ProjectsPage() {
         <div className="grid min-h-0 grid-cols-1 gap-[5px] lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,0.9fr)]">
           {/* COLUMN 1: PROJECT TASKS */}
           <GridPanel label={`Project Tasks · ${selectedTasks.length}`}>
+            {isDemoMode && <DemoModeBanner onExit={disableDemoMode} />}
+            {conflictError && (
+              <TaskConflictBanner
+                message={`Revision conflict: ${conflictError.message}`}
+                onResolve={refetchTasks}
+                onDismiss={clearConflict}
+              />
+            )}
+            {error && !conflictError && (
+              <TaskErrorBanner
+                message={error.message}
+                onDismiss={clearError}
+                onEnableDemo={enableDemoMode}
+              />
+            )}
+
             <div className="divide-y divide-grid/20 border-t border-grid/20">
               {openTasks.map((t) => (
                 <div
                   key={t.id}
-                  onClick={() => toggleTask(t.id)}
+                  onClick={() => handleToggleTask(t.id)}
                   className="flex cursor-pointer items-center justify-between py-2.5 hover:bg-panel px-1 transition-colors"
                 >
                   <div className="flex items-center gap-2.5">
@@ -203,7 +233,7 @@ export function ProjectsPage() {
                   {doneTasks.map((t) => (
                     <div
                       key={t.id}
-                      onClick={() => toggleTask(t.id)}
+                      onClick={() => handleToggleTask(t.id)}
                       className="flex cursor-pointer items-center justify-between py-1 px-1 opacity-50 hover:opacity-100 transition-opacity"
                     >
                       <span className="text-xs line-through">{t.title}</span>
