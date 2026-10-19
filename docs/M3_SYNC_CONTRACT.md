@@ -5,6 +5,20 @@ reconciliation, and simulator. It does not add or promise a production sync
 endpoint. PostgreSQL remains canonical for cloud tasks, projects, and
 operational state. Markdown files remain portable content artifacts.
 
+## Storage placement and implementation status
+
+- The browser offline operation queue uses IndexedDB.
+- The local companion has no local operational database or durable offline
+  queue. It may submit operations through the authenticated cloud protocol
+  when connected. Durable disconnected companion edits are not supported yet.
+- Server receipts, entity revision snapshots, conflicts, change-feed events,
+  and tombstones belong in PostgreSQL. The additive `0005_sync_state`
+  migration and `PostgresSyncStore` provide an isolated implementation for
+  canonical tasks and projects. They are not wired to production API routes.
+- PostgreSQL-backed tests require the local `personal_os_test` database and
+  fail with an explicit setup message when it is unavailable. They do not
+  switch to SQLite.
+
 ## Shared types
 
 - **Entity identity:** `(entity_type, entity_id)`. Current types are `task`,
@@ -19,8 +33,13 @@ operational state. Markdown files remain portable content artifacts.
   diagnostic; it does not establish ordering or causality.
 - **Payload semantics:** create carries the complete initial entity document;
   update and conflict resolution carry the complete intended resulting
-  document, not a JSON patch. Delete carries no payload. This contract does
-  not imply field-level merge semantics.
+  document, not a JSON patch. Delete carries no payload. The isolated
+  PostgreSQL adapter currently synchronizes the M1 task fields
+  (`title`, `description`, `status`, `priority`, `due_date`, `project_id`, and
+  `capture_id`) and project fields (`name`, `description`, `status`). Server
+  identity, ownership, revision, timestamps, and derived task metadata are not
+  accepted from clients. `project_document` remains unsupported by that
+  adapter. This contract does not imply field-level merge semantics.
 - **Acknowledgement:** operation ID, status (`applied`, `duplicate`,
   `conflicted`, `retryable`, or `permanent`), resulting/current revision when
   known, conflict ID when conflicted, and a typed error when unsuccessful.
@@ -122,5 +141,7 @@ The current M1 API exposes revisioned task/project operations but does not
 implement the sync upload, acknowledgement, conflict resolution, or change-feed
 contract above. M2 device registration/authentication is also not a dependency
 of these local components. Production integration requires a separately
-reviewed API implementation and persistence design; this contract and its
+reviewed API implementation and authenticated M2 client wiring. The isolated
+PostgreSQL store does not provide protocol negotiation, authenticated uploads,
+cursor issuance/expiration, or a production endpoint; the contract and
 simulator do not demonstrate live cloud/device synchronization.
