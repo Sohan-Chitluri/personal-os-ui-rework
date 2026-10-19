@@ -1,7 +1,7 @@
 /**
  * Durable browser-side operation queue. The queue logic depends on a small
  * storage transaction interface; the production adapter below uses IndexedDB.
- * The companion has its own SQLite implementation and does not share storage.
+ * The local companion does not use this browser adapter or a local queue.
  */
 
 export const SYNC_PROTOCOL_VERSION = 1 as const;
