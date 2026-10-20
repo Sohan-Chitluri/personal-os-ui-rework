@@ -14,7 +14,21 @@ venv/
 personal-os-audio/
 search_index/
 *.tmp
+.env
 
 # Editor / OS
 .DS_Store
 *~
+
+# Terraform / OpenTofu
+.terraform/
+*.tfplan
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
