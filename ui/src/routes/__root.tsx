@@ -9,13 +9,16 @@ import {
   Scripts,
   type ErrorComponentProps,
 } from "@tanstack/react-router";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 
 import appCss from "../styles.css?url";
 import { reportLovableError } from "../lib/lovable-error-reporting";
 import { AppHeader } from "@/components/blockday-ui";
 import { BlockdayProvider } from "@/lib/blockday-store";
 import { AppSidebar } from "@/components/blockday-sidebar";
+import { RaphaelOverlay } from "@/components/raphael-overlay";
+import { SyncStatusPanel } from "@/components/sync-status-panel";
+import { beginCognitoLogin, getCognitoAccessToken, isCognitoConfigured } from "@/lib/auth";
 
 function NotFoundComponent() {
   return (
@@ -123,11 +126,20 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
+  if (
+    isCognitoConfigured() &&
+    !getCognitoAccessToken() &&
+    pathname !== "/auth/callback"
+  ) {
+    return <SignInScreen />;
+  }
+
   return (
     <QueryClientProvider client={queryClient}>
       <BlockdayProvider>
         <div className="flex min-h-screen flex-col">
           <AppHeader />
+          <SyncStatusPanel />
           <div className="shell-grid">
             <AppSidebar />
             <main key={pathname} className="page-assemble min-w-0">
@@ -136,7 +148,26 @@ function RootComponent() {
             </main>
           </div>
         </div>
+        <RaphaelOverlay />
       </BlockdayProvider>
     </QueryClientProvider>
+  );
+}
+
+function SignInScreen() {
+  const [error, setError] = useState<string | null>(null);
+  return (
+    <main className="mx-auto my-20 max-w-md border-2 border-grid bg-canvas p-8">
+      <p className="section-label">Personal OS</p>
+      <h1 className="mt-2 font-display text-3xl uppercase">Sign in to continue</h1>
+      <p className="mt-3 text-sm text-muted-foreground">Your projects and tasks are private to your account.</p>
+      <button
+        className="mt-6 w-full border-2 border-grid bg-block-blue px-4 py-3 text-sm font-black uppercase text-on-primary"
+        onClick={() => void beginCognitoLogin().catch((reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason)))}
+      >
+        Continue with Cognito
+      </button>
+      {error && <p role="alert" className="mt-3 text-sm text-block-red">{error}</p>}
+    </main>
   );
 }

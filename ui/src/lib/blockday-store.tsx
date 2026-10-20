@@ -1,8 +1,18 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { flushSync } from "react-dom";
 import { makeTodayTasks } from "./blockday-data";
 import { taskApi, TaskConflictError } from "./task-api";
+import { projectApi } from "./project-api";
+import type { BackendProject, ProjectCreatePayload, ProjectUpdatePayload } from "./project-types";
 import {
   backendToTask,
   taskToCreatePayload,
@@ -11,6 +21,17 @@ import {
   type Mood,
   type Task,
 } from "./task-types";
+import { getCognitoAccessToken } from "./auth";
+import { IndexedDbOfflineOperationQueue } from "./offline-queue";
+import {
+  databaseNameForAccessToken,
+  IndexedDbSyncPersistence,
+  SyncCoordinator,
+  type SyncCoordinatorState,
+  type SyncStatus,
+} from "./sync-coordinator";
+import { syncApi } from "./sync-api";
+import { OfflineMutationBoundary } from "./offline-mutations";
 
 export function morph(fn: () => void) {
   const d = document as Document & { startViewTransition?: (cb: () => void) => void };
@@ -26,7 +47,9 @@ export function normalizeError(err: unknown): Error {
   if (err instanceof Error) {
     if (
       err instanceof TypeError &&
-      (err.message.includes("fetch") || err.message.includes("NetworkError") || err.message.includes("Failed"))
+      (err.message.includes("fetch") ||
+        err.message.includes("NetworkError") ||
+        err.message.includes("Failed"))
     ) {
       return new Error(`Network failure: Unable to reach server (${err.message})`);
     }
@@ -37,8 +60,23 @@ export function normalizeError(err: unknown): Error {
 
 export type Store = {
   tasks: Task[];
+  projects: BackendProject[];
+  projectsLoading: boolean;
+  projectsError: Error | null;
+  createProject: (payload: ProjectCreatePayload) => Promise<BackendProject>;
+  updateProject: (
+    id: string,
+    payload: ProjectUpdatePayload,
+    revision?: number,
+  ) => Promise<BackendProject>;
+  deleteProject: (id: string) => Promise<void>;
   setTasks: (fn: (t: Task[]) => Task[]) => void;
-  addTask: (title: string, projectId?: string, estimate?: number, mood?: Mood) => Promise<Task | undefined>;
+  addTask: (
+    title: string,
+    projectId?: string,
+    estimate?: number,
+    mood?: Mood,
+  ) => Promise<Task | undefined>;
   toggleTask: (id: string) => Promise<Task | undefined>;
   updateTask: (id: string, updates: Partial<Task>) => Promise<Task | undefined>;
   deleteTask: (id: string) => Promise<void>;
@@ -66,26 +104,62 @@ export type Store = {
   setSelectedProjectId: (id: string) => void;
   moodFilter: Mood | "All";
   setMoodFilter: (m: Mood | "All") => void;
-  timer: { mode: TimerMode; seconds: number; total: number; running: boolean; sessions: number; taskId: string };
+  timer: {
+    mode: TimerMode;
+    seconds: number;
+    total: number;
+    running: boolean;
+    sessions: number;
+    taskId: string;
+  };
   setMode: (m: TimerMode) => void;
   toggleTimer: () => void;
   resetTimer: () => void;
   skipTimer: () => void;
   selectTask: (id: string) => void;
+  coordinator: SyncCoordinator | null;
+  mutationBoundary: OfflineMutationBoundary | null;
+  syncStatus: SyncStatus;
+  syncError: string | null;
 };
 
+export interface BlockdayProviderProps {
+  children: ReactNode;
+  initialMutationBoundary?: OfflineMutationBoundary | null;
+  initialCoordinator?: SyncCoordinator | null;
+}
+
 const Ctx = createContext<Store | null>(null);
+
+export function useOptionalBlockday(): Store | null {
+  return useContext(Ctx);
+}
+
 const PREFERENCES_KEY = "blockday-preferences-v1";
 
-export function BlockdayProvider({ children }: { children: ReactNode }) {
+export function BlockdayProvider({
+  children,
+  initialMutationBoundary,
+  initialCoordinator,
+}: BlockdayProviderProps) {
   const queryClient = useQueryClient();
+
+  const [activeCoordinator, setActiveCoordinator] = useState<SyncCoordinator | null>(
+    initialCoordinator ?? null,
+  );
+  const [activeMutationBoundary, setActiveMutationBoundary] =
+    useState<OfflineMutationBoundary | null>(initialMutationBoundary ?? null);
+  const [syncState, setSyncState] = useState<SyncCoordinatorState>({
+    status: "synced",
+    error: null,
+  });
 
   const [archived, setArchived] = useState<string[]>([]);
   const [dayOffset, setDayOffset] = useState(0);
   const [today, setToday] = useState<Date | null>(null);
   const [isDark, setIsDark] = useState(false);
   const [query, setQuery] = useState("");
-  const [selectedProjectId, setSelectedProjectId] = useState("blockday");
+  const [selectedProjectId, setSelectedProjectId] = useState("");
   const [moodFilter, setMoodFilter] = useState<Mood | "All">("All");
   const [mode, setModeState] = useState<TimerMode>("Focus");
   const [seconds, setSeconds] = useState(lengths.Focus);
@@ -111,11 +185,272 @@ export function BlockdayProvider({ children }: { children: ReactNode }) {
   const clearConflict = useCallback(() => setConflictError(null), []);
   const clearError = useCallback(() => setMutationError(null), []);
 
+  const token = getCognitoAccessToken();
+  const syncEnabled = Boolean(token) && !isDemoMode;
+
+  useEffect(() => {
+    if (initialMutationBoundary || initialCoordinator) {
+      if (initialCoordinator) setActiveCoordinator(initialCoordinator);
+      if (initialMutationBoundary) setActiveMutationBoundary(initialMutationBoundary);
+      return;
+    }
+    if (!syncEnabled || !token) {
+      setActiveCoordinator(null);
+      setActiveMutationBoundary(null);
+      setSyncState({ status: "synced", error: null });
+      return;
+    }
+
+    let disposed = false;
+    let queue: IndexedDbOfflineOperationQueue | null = null;
+    let persistence: IndexedDbSyncPersistence | null = null;
+    let coordinator: SyncCoordinator | null = null;
+    let handleOnline: (() => void) | null = null;
+
+    void databaseNameForAccessToken(token)
+      .then((databaseName) => {
+        if (disposed) return;
+        queue = new IndexedDbOfflineOperationQueue({
+          database_name: databaseName,
+          max_batch_size: 100,
+        });
+        persistence = new IndexedDbSyncPersistence(databaseName);
+        coordinator = new SyncCoordinator(
+          queue,
+          persistence,
+          syncApi,
+          (next) => {
+            if (!disposed) setSyncState(next);
+          },
+          100,
+          (items) => {
+            if (items.some((item) => item.entity_type === "task")) {
+              void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+            }
+            if (items.some((item) => item.entity_type === "project")) {
+              void queryClient.invalidateQueries({ queryKey: ["projects"] });
+            }
+          },
+          (entry, ack) => {
+            const op = entry.operation;
+            if (!op) return;
+            if (op.entity_type === "task") {
+              queryClient.setQueryData<Task[]>(["tasks"], (old = []) =>
+                old.map((t) => {
+                  if (t.id === op.entity_id) {
+                    if (ack.status === "applied" || ack.status === "duplicate") {
+                      return {
+                        ...t,
+                        revision: ack.revision ?? t.revision,
+                        syncStatus: "synced",
+                        conflictId: null,
+                      };
+                    } else if (ack.status === "conflicted") {
+                      return {
+                        ...t,
+                        syncStatus: "conflict",
+                        conflictId: ack.conflict_id,
+                      };
+                    } else if (ack.status === "permanent") {
+                      return { ...t, syncStatus: "failed" };
+                    }
+                  }
+                  return t;
+                }),
+              );
+              if (ack.status === "conflicted") {
+                setConflictError(
+                  new TaskConflictError(ack.message || "Revision conflict detected", {
+                    type: "https://api.pos-deku.com/errors/sync/stale_revision",
+                    title: "Revision conflict",
+                    status: 409,
+                    detail: ack.message || "Revision conflict detected",
+                    extensions: {
+                      current_revision: ack.revision ?? undefined,
+                    },
+                  }),
+                );
+              }
+            } else if (op.entity_type === "project") {
+              queryClient.setQueryData<BackendProject[]>(["projects"], (old = []) =>
+                old.map((p) => {
+                  if (p.id === op.entity_id) {
+                    if (ack.status === "applied" || ack.status === "duplicate") {
+                      return {
+                        ...p,
+                        revision: ack.revision ?? p.revision,
+                        syncStatus: "synced",
+                        conflictId: null,
+                      };
+                    } else if (ack.status === "conflicted") {
+                      return {
+                        ...p,
+                        syncStatus: "conflict",
+                        conflictId: ack.conflict_id,
+                      };
+                    } else if (ack.status === "permanent") {
+                      return { ...p, syncStatus: "failed" };
+                    }
+                  }
+                  return p;
+                }),
+              );
+            }
+          },
+        );
+
+        const boundary = new OfflineMutationBoundary(queue, coordinator, persistence);
+        setActiveCoordinator(coordinator);
+        setActiveMutationBoundary(boundary);
+
+        handleOnline = () => {
+          void coordinator?.syncNow().catch(() => {});
+        };
+        if (typeof window !== "undefined") {
+          window.addEventListener("online", handleOnline);
+          (window as unknown as { __posCoordinator?: unknown }).__posCoordinator = coordinator;
+        }
+
+        void queryClient.invalidateQueries({ queryKey: ["tasks"] });
+        void queryClient.invalidateQueries({ queryKey: ["projects"] });
+      })
+      .catch((error: unknown) => {
+        if (!disposed) {
+          setSyncState({
+            status: "failed",
+            error: error instanceof Error ? error.message : String(error),
+          });
+        }
+      });
+
+    return () => {
+      disposed = true;
+      if (typeof window !== "undefined" && handleOnline) {
+        window.removeEventListener("online", handleOnline);
+        delete (window as unknown as { __posCoordinator?: unknown }).__posCoordinator;
+      }
+      queue?.close();
+      persistence?.close();
+    };
+  }, [syncEnabled, token, initialMutationBoundary, initialCoordinator, queryClient]);
+
+  const projectsQuery = useQuery({
+    queryKey: ["projects"],
+    queryFn: async (): Promise<BackendProject[]> => {
+      if (isDemoMode) {
+        return [];
+      }
+      if (activeMutationBoundary) {
+        return activeMutationBoundary.loadProjects();
+      }
+      return (await projectApi.listProjects()).items;
+    },
+    enabled: !syncEnabled || Boolean(activeMutationBoundary) || syncState.status === "failed",
+    retry: false,
+  });
+  const projects = isDemoMode ? [] : (projectsQuery.data ?? []);
+
+  useEffect(() => {
+    if (isDemoMode || !projects.length) return;
+    if (!projects.some((project) => project.id === selectedProjectId)) {
+      setSelectedProjectId(projects[0]!.id);
+    }
+  }, [isDemoMode, projects, selectedProjectId]);
+
+  const createProject = useCallback(
+    async (payload: ProjectCreatePayload) => {
+      clearError();
+      clearConflict();
+      if (activeMutationBoundary) {
+        try {
+          const { project: created } = await activeMutationBoundary.enqueueProjectCreate(payload);
+          queryClient.setQueryData<BackendProject[]>(["projects"], (old = []) => [...old, created]);
+          setSelectedProjectId(created.id);
+          return created;
+        } catch (err: unknown) {
+          const errorObj = normalizeError(err);
+          setMutationError(errorObj);
+          throw errorObj;
+        }
+      }
+      const created = await projectApi.createProject(payload);
+      queryClient.setQueryData<BackendProject[]>(["projects"], (old = []) => [...old, created]);
+      setSelectedProjectId(created.id);
+      return created;
+    },
+    [queryClient, activeMutationBoundary, clearError, clearConflict],
+  );
+
+  const updateProject = useCallback(
+    async (id: string, payload: ProjectUpdatePayload, revision?: number) => {
+      clearError();
+      clearConflict();
+      const currentProjects = queryClient.getQueryData<BackendProject[]>(["projects"]) ?? projects;
+      const target = currentProjects.find((p) => p.id === id);
+
+      if (activeMutationBoundary && target) {
+        try {
+          const { project: updated } = await activeMutationBoundary.enqueueProjectUpdate(
+            target,
+            payload,
+            revision,
+          );
+          queryClient.setQueryData<BackendProject[]>(["projects"], (old = []) =>
+            old.map((p) => (p.id === id ? updated : p)),
+          );
+          return updated;
+        } catch (err: unknown) {
+          const errorObj = normalizeError(err);
+          setMutationError(errorObj);
+          throw errorObj;
+        }
+      }
+      const updated = await projectApi.updateProject(id, payload, revision);
+      queryClient.setQueryData<BackendProject[]>(["projects"], (old = []) =>
+        old.map((p) => (p.id === id ? updated : p)),
+      );
+      return updated;
+    },
+    [queryClient, projects, activeMutationBoundary, clearError, clearConflict],
+  );
+
+  const deleteProject = useCallback(
+    async (id: string) => {
+      clearError();
+      clearConflict();
+      const currentProjects = queryClient.getQueryData<BackendProject[]>(["projects"]) ?? projects;
+      const target = currentProjects.find((p) => p.id === id);
+
+      if (activeMutationBoundary && target) {
+        try {
+          await activeMutationBoundary.enqueueProjectDelete(target);
+          queryClient.setQueryData<BackendProject[]>(["projects"], (old = []) =>
+            old.filter((p) => p.id !== id),
+          );
+          if (selectedProjectId === id) setSelectedProjectId("");
+          return;
+        } catch (err: unknown) {
+          const errorObj = normalizeError(err);
+          setMutationError(errorObj);
+          throw errorObj;
+        }
+      }
+      await projectApi.deleteProject(id);
+      queryClient.setQueryData<BackendProject[]>(["projects"], (old = []) =>
+        old.filter((p) => p.id !== id),
+      );
+      if (selectedProjectId === id) setSelectedProjectId("");
+    },
+    [queryClient, projects, selectedProjectId, activeMutationBoundary, clearError, clearConflict],
+  );
+
   const enableDemoMode = useCallback(() => {
     setIsDemoMode(true);
     try {
       localStorage.setItem("blockday_demo_mode", "true");
-    } catch {}
+    } catch {
+      // ignore local storage errors
+    }
     clearError();
     clearConflict();
     queryClient.setQueryData<Task[]>(["tasks"], makeTodayTasks());
@@ -125,7 +460,9 @@ export function BlockdayProvider({ children }: { children: ReactNode }) {
     setIsDemoMode(false);
     try {
       localStorage.removeItem("blockday_demo_mode");
-    } catch {}
+    } catch {
+      // ignore local storage errors
+    }
     clearError();
     clearConflict();
     void queryClient.invalidateQueries({ queryKey: ["tasks"] });
@@ -144,6 +481,9 @@ export function BlockdayProvider({ children }: { children: ReactNode }) {
       if (isDemoMode) {
         return makeTodayTasks();
       }
+      if (activeMutationBoundary) {
+        return activeMutationBoundary.loadTasks();
+      }
       try {
         const res = await taskApi.listTasks();
         if (res?.items && Array.isArray(res.items)) {
@@ -154,6 +494,7 @@ export function BlockdayProvider({ children }: { children: ReactNode }) {
         throw normalizeError(err);
       }
     },
+    enabled: !syncEnabled || Boolean(activeMutationBoundary) || syncState.status === "failed",
     staleTime: 0,
     retry: false,
   });
@@ -183,7 +524,7 @@ export function BlockdayProvider({ children }: { children: ReactNode }) {
     if (loaded) {
       localStorage.setItem(
         PREFERENCES_KEY,
-        JSON.stringify({ archived, isDark, selectedProjectId })
+        JSON.stringify({ archived, isDark, selectedProjectId }),
       );
     }
   }, [archived, isDark, selectedProjectId, loaded]);
@@ -207,11 +548,16 @@ export function BlockdayProvider({ children }: { children: ReactNode }) {
     (fn: (t: Task[]) => Task[]) => {
       queryClient.setQueryData<Task[]>(["tasks"], (old = []) => fn(old));
     },
-    [queryClient]
+    [queryClient],
   );
 
   const addTask = useCallback(
-    async (title: string, projectId = "blockday", estimate = 15, mood: Mood = "Clear") => {
+    async (
+      title: string,
+      projectId = selectedProjectId || undefined,
+      estimate = 15,
+      mood: Mood = "Clear",
+    ) => {
       const trimmed = title.trim();
       if (!trimmed) return;
       clearError();
@@ -221,7 +567,7 @@ export function BlockdayProvider({ children }: { children: ReactNode }) {
         const demoTask: Task = {
           id: `demo_${Date.now()}`,
           title: trimmed,
-          projectId,
+          projectId: projectId ?? "unassigned",
           dueIn: 0,
           estimate,
           mood,
@@ -234,11 +580,28 @@ export function BlockdayProvider({ children }: { children: ReactNode }) {
         return demoTask;
       }
 
+      if (activeMutationBoundary) {
+        try {
+          const { task: createdTask } = await activeMutationBoundary.enqueueTaskCreate({
+            title: trimmed,
+            projectId,
+            estimate,
+            mood,
+          });
+          queryClient.setQueryData<Task[]>(["tasks"], (old = []) => [createdTask, ...old]);
+          return createdTask;
+        } catch (err: unknown) {
+          const errorObj = normalizeError(err);
+          setMutationError(errorObj);
+          throw errorObj;
+        }
+      }
+
       const tempId = `t_${Date.now()}`;
       const optimisticTask: Task = {
         id: tempId,
         title: trimmed,
-        projectId,
+        projectId: projectId ?? "unassigned",
         dueIn: 0,
         estimate,
         mood,
@@ -253,26 +616,26 @@ export function BlockdayProvider({ children }: { children: ReactNode }) {
       try {
         const payload = taskToCreatePayload({
           title: trimmed,
-          projectId,
+          ...(projectId ? { projectId } : {}),
           estimate,
           mood,
         });
         const created = await taskApi.createTask(payload);
         const serverTask = backendToTask(created, optimisticTask);
         queryClient.setQueryData<Task[]>(["tasks"], (old = []) =>
-          old.map((t) => (t.id === tempId ? serverTask : t))
+          old.map((t) => (t.id === tempId ? serverTask : t)),
         );
         return serverTask;
       } catch (err: unknown) {
         queryClient.setQueryData<Task[]>(["tasks"], (old = []) =>
-          old.filter((t) => t.id !== tempId)
+          old.filter((t) => t.id !== tempId),
         );
         const errorObj = normalizeError(err);
         setMutationError(errorObj);
         throw errorObj;
       }
     },
-    [queryClient, isDemoMode, clearError, clearConflict]
+    [queryClient, isDemoMode, activeMutationBoundary, clearError, clearConflict, selectedProjectId],
   );
 
   const toggleTask = useCallback(
@@ -291,15 +654,29 @@ export function BlockdayProvider({ children }: { children: ReactNode }) {
         const demoTask: Task = { ...target, done: nextDone };
         morph(() => {
           queryClient.setQueryData<Task[]>(["tasks"], (old = []) =>
-            old.map((t) => (t.id === id ? demoTask : t))
+            old.map((t) => (t.id === id ? demoTask : t)),
           );
         });
         return demoTask;
       }
 
+      if (activeMutationBoundary) {
+        try {
+          const { task: updatedTask } = await activeMutationBoundary.enqueueTaskToggle(target);
+          queryClient.setQueryData<Task[]>(["tasks"], (old = []) =>
+            old.map((t) => (t.id === id ? updatedTask : t)),
+          );
+          return updatedTask;
+        } catch (err: unknown) {
+          const errorObj = normalizeError(err);
+          setMutationError(errorObj);
+          throw errorObj;
+        }
+      }
+
       morph(() => {
         queryClient.setQueryData<Task[]>(["tasks"], (old = []) =>
-          old.map((t) => (t.id === id ? { ...t, done: nextDone } : t))
+          old.map((t) => (t.id === id ? { ...t, done: nextDone } : t)),
         );
       });
 
@@ -312,12 +689,12 @@ export function BlockdayProvider({ children }: { children: ReactNode }) {
         }
         const serverTask = backendToTask(updated, { ...target, done: nextDone });
         queryClient.setQueryData<Task[]>(["tasks"], (old = []) =>
-          old.map((t) => (t.id === id ? serverTask : t))
+          old.map((t) => (t.id === id ? serverTask : t)),
         );
         return serverTask;
       } catch (err: unknown) {
         queryClient.setQueryData<Task[]>(["tasks"], (old = []) =>
-          old.map((t) => (t.id === id ? { ...t, done: previousDone } : t))
+          old.map((t) => (t.id === id ? { ...t, done: previousDone } : t)),
         );
 
         if (err instanceof TaskConflictError) {
@@ -331,7 +708,7 @@ export function BlockdayProvider({ children }: { children: ReactNode }) {
         throw errorObj;
       }
     },
-    [queryClient, tasks, isDemoMode, clearError, clearConflict]
+    [queryClient, tasks, isDemoMode, activeMutationBoundary, clearError, clearConflict],
   );
 
   const updateTask = useCallback(
@@ -347,15 +724,32 @@ export function BlockdayProvider({ children }: { children: ReactNode }) {
         const demoTask: Task = { ...target, ...updates };
         morph(() => {
           queryClient.setQueryData<Task[]>(["tasks"], (old = []) =>
-            old.map((t) => (t.id === id ? demoTask : t))
+            old.map((t) => (t.id === id ? demoTask : t)),
           );
         });
         return demoTask;
       }
 
+      if (activeMutationBoundary) {
+        try {
+          const { task: updatedTask } = await activeMutationBoundary.enqueueTaskUpdate(
+            target,
+            updates,
+          );
+          queryClient.setQueryData<Task[]>(["tasks"], (old = []) =>
+            old.map((t) => (t.id === id ? updatedTask : t)),
+          );
+          return updatedTask;
+        } catch (err: unknown) {
+          const errorObj = normalizeError(err);
+          setMutationError(errorObj);
+          throw errorObj;
+        }
+      }
+
       morph(() => {
         queryClient.setQueryData<Task[]>(["tasks"], (old = []) =>
-          old.map((t) => (t.id === id ? { ...t, ...updates } : t))
+          old.map((t) => (t.id === id ? { ...t, ...updates } : t)),
         );
       });
 
@@ -364,12 +758,12 @@ export function BlockdayProvider({ children }: { children: ReactNode }) {
         const updated = await taskApi.updateTask(id, payload, target.revision);
         const serverTask = backendToTask(updated, { ...target, ...updates });
         queryClient.setQueryData<Task[]>(["tasks"], (old = []) =>
-          old.map((t) => (t.id === id ? serverTask : t))
+          old.map((t) => (t.id === id ? serverTask : t)),
         );
         return serverTask;
       } catch (err: unknown) {
         queryClient.setQueryData<Task[]>(["tasks"], (old = []) =>
-          old.map((t) => (t.id === id ? target : t))
+          old.map((t) => (t.id === id ? target : t)),
         );
 
         if (err instanceof TaskConflictError) {
@@ -383,7 +777,7 @@ export function BlockdayProvider({ children }: { children: ReactNode }) {
         throw errorObj;
       }
     },
-    [queryClient, tasks, isDemoMode, clearError, clearConflict]
+    [queryClient, tasks, isDemoMode, activeMutationBoundary, clearError, clearConflict],
   );
 
   const deleteTask = useCallback(
@@ -398,17 +792,25 @@ export function BlockdayProvider({ children }: { children: ReactNode }) {
 
       if (isDemoMode) {
         morph(() => {
-          queryClient.setQueryData<Task[]>(["tasks"], (old = []) =>
-            old.filter((t) => t.id !== id)
-          );
+          queryClient.setQueryData<Task[]>(["tasks"], (old = []) => old.filter((t) => t.id !== id));
         });
         return;
       }
 
+      if (activeMutationBoundary) {
+        try {
+          await activeMutationBoundary.enqueueTaskDelete(target);
+          queryClient.setQueryData<Task[]>(["tasks"], (old = []) => old.filter((t) => t.id !== id));
+          return;
+        } catch (err: unknown) {
+          const errorObj = normalizeError(err);
+          setMutationError(errorObj);
+          throw errorObj;
+        }
+      }
+
       morph(() => {
-        queryClient.setQueryData<Task[]>(["tasks"], (old = []) =>
-          old.filter((t) => t.id !== id)
-        );
+        queryClient.setQueryData<Task[]>(["tasks"], (old = []) => old.filter((t) => t.id !== id));
       });
 
       try {
@@ -434,7 +836,7 @@ export function BlockdayProvider({ children }: { children: ReactNode }) {
         throw errorObj;
       }
     },
-    [queryClient, tasks, isDemoMode, clearError, clearConflict]
+    [queryClient, tasks, isDemoMode, activeMutationBoundary, clearError, clearConflict],
   );
 
   const setMode = useCallback((m: TimerMode) => {
@@ -446,6 +848,12 @@ export function BlockdayProvider({ children }: { children: ReactNode }) {
   const value = useMemo<Store>(
     () => ({
       tasks,
+      projects,
+      projectsLoading: !isDemoMode && projectsQuery.isLoading,
+      projectsError: projectsQuery.error as Error | null,
+      createProject,
+      updateProject,
+      deleteProject,
       setTasks,
       addTask,
       toggleTask,
@@ -486,9 +894,19 @@ export function BlockdayProvider({ children }: { children: ReactNode }) {
         setMode(mode === "Focus" ? "Break" : "Focus");
       },
       selectTask: setTaskId,
+      coordinator: activeCoordinator,
+      mutationBoundary: activeMutationBoundary,
+      syncStatus: syncState.status,
+      syncError: syncState.error,
     }),
     [
       tasks,
+      projects,
+      projectsQuery.isLoading,
+      projectsQuery.error,
+      createProject,
+      updateProject,
+      deleteProject,
       setTasks,
       addTask,
       toggleTask,
@@ -518,7 +936,10 @@ export function BlockdayProvider({ children }: { children: ReactNode }) {
       sessions,
       taskId,
       setMode,
-    ]
+      activeCoordinator,
+      activeMutationBoundary,
+      syncState,
+    ],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
@@ -577,7 +998,7 @@ export function formatClock(total: number) {
 export function dayLabel(
   today: Date | null,
   offset: number,
-  opts: Intl.DateTimeFormatOptions = { weekday: "short", month: "short", day: "numeric" }
+  opts: Intl.DateTimeFormatOptions = { weekday: "short", month: "short", day: "numeric" },
 ) {
   if (!today) return offset === 0 ? "Today" : `${offset} days`;
   const d = new Date(today);

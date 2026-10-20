@@ -1,30 +1,89 @@
 import { Link } from "@tanstack/react-router";
-import { AlertTriangle, Check, ChevronLeft, ChevronRight, Moon, RefreshCw, Search, Sun, X } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Moon,
+  RefreshCw,
+  Search,
+  Sun,
+  X,
+} from "lucide-react";
 import type { ButtonHTMLAttributes, ReactNode } from "react";
-import { dailyCompletions, deadline, projectById, type Mood, type Task, type Tone } from "@/lib/blockday-data";
+import {
+  dailyCompletions,
+  deadline,
+  projectById,
+  type Mood,
+  type Task,
+  type Tone,
+} from "@/lib/blockday-data";
 import { dayLabel, morph, useBlockday } from "@/lib/blockday-store";
+import { beginCognitoLogout, getCognitoAccessToken, isCognitoConfigured } from "@/lib/auth";
 
-export const toneBg: Record<Tone, string> = { red: "bg-block-red", blue: "bg-block-blue", yellow: "bg-block-yellow", neutral: "bg-canvas" };
-export const toneText: Record<Tone, string> = { red: "text-on-primary", blue: "text-on-primary", yellow: "text-block-ink", neutral: "text-foreground" };
+export const toneBg: Record<Tone, string> = {
+  red: "bg-block-red",
+  blue: "bg-block-blue",
+  yellow: "bg-block-yellow",
+  neutral: "bg-canvas",
+};
+export const toneText: Record<Tone, string> = {
+  red: "text-on-primary",
+  blue: "text-on-primary",
+  yellow: "text-block-ink",
+  neutral: "text-foreground",
+};
 
 export function IconButton({ className = "", ...props }: ButtonHTMLAttributes<HTMLButtonElement>) {
   return <button className={`icon-button ${className}`} {...props} />;
 }
 
-export function SectionLabel({ children, className = "" }: { children: ReactNode; className?: string }) {
+export function SectionLabel({
+  children,
+  className = "",
+}: {
+  children: ReactNode;
+  className?: string;
+}) {
   return <span className={`section-label ${className}`}>{children}</span>;
 }
 
-export function GridPanel({ children, className = "", label, aside }: { children: ReactNode; className?: string; label?: ReactNode; aside?: ReactNode }) {
+export function GridPanel({
+  children,
+  className = "",
+  label,
+  aside,
+}: {
+  children: ReactNode;
+  className?: string;
+  label?: ReactNode;
+  aside?: ReactNode;
+}) {
   return (
     <section className={`grid-panel animate-slide-panel ${className}`}>
-      {label && <div className="mb-4 flex items-center justify-between gap-3"><SectionLabel>{label}</SectionLabel>{aside}</div>}
+      {label && (
+        <div className="mb-4 flex items-center justify-between gap-3">
+          <SectionLabel>{label}</SectionLabel>
+          {aside}
+        </div>
+      )}
       {children}
     </section>
   );
 }
 
-export function StatBlock({ value, label, tone = "neutral", className = "" }: { value: ReactNode; label: string; tone?: Tone; className?: string }) {
+export function StatBlock({
+  value,
+  label,
+  tone = "neutral",
+  className = "",
+}: {
+  value: ReactNode;
+  label: string;
+  tone?: Tone;
+  className?: string;
+}) {
   return (
     <div className={`stat-block ${toneBg[tone]} ${toneText[tone]} ${className}`}>
       <p className="font-display text-4xl leading-none tabular-nums">{value}</p>
@@ -47,7 +106,14 @@ export interface TaskRowProps {
   className?: string;
 }
 
-export function TaskRow({ task, onToggle, onSelect, isSelected, compact, className = "" }: TaskRowProps) {
+export function TaskRow({
+  task,
+  onToggle,
+  onSelect,
+  isSelected,
+  compact,
+  className = "",
+}: TaskRowProps) {
   const project = projectById(task.projectId);
   const d = deadline(task.dueIn);
   return (
@@ -73,16 +139,47 @@ export function TaskRow({ task, onToggle, onSelect, isSelected, compact, classNa
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">
           {task.frog && !task.done && <span className="frog-label">Eat the frog</span>}
-          <h2 className={`truncate ${compact ? "text-xs" : "text-[16px] font-bold"}`}>{task.title}</h2>
+          <h2 className={`truncate ${compact ? "text-xs" : "text-[16px] font-bold"}`}>
+            {task.title}
+          </h2>
         </div>
         <div className="mt-1 flex items-center gap-3 text-[9px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
-          {project && <span className="flex items-center gap-1.5"><span className={`project-swatch ${toneBg[project.tone]}`} />{project.name}</span>}
+          {project && (
+            <span className="flex items-center gap-1.5">
+              <span className={`project-swatch ${toneBg[project.tone]}`} />
+              {project.name}
+            </span>
+          )}
           <span>{task.estimate} min</span>
           {!compact && <span>{task.mood}</span>}
-          {task.revision > 1 && <span className="font-mono text-[8px] opacity-60">r{task.revision}</span>}
+          {task.revision > 1 && (
+            <span className="font-mono text-[8px] opacity-60">r{task.revision}</span>
+          )}
+          {task.syncStatus && task.syncStatus !== "synced" && (
+            <span
+              className={`px-1 py-0.5 text-[8px] font-mono uppercase tracking-wider ${
+                task.syncStatus === "conflict" || task.syncStatus === "failed"
+                  ? "bg-block-red text-white"
+                  : task.syncStatus === "syncing"
+                    ? "bg-block-blue text-white"
+                    : "bg-block-yellow text-black"
+              }`}
+              aria-label={`Sync status: ${task.syncStatus}`}
+            >
+              {task.syncStatus === "pending"
+                ? "Queued"
+                : task.syncStatus === "syncing"
+                  ? "Syncing"
+                  : task.syncStatus === "conflict"
+                    ? "Conflict"
+                    : "Failed"}
+            </span>
+          )}
         </div>
       </div>
-      {!task.done && !compact && <span className={`deadline-label deadline-label-${d.kind}`}>{d.label}</span>}
+      {!task.done && !compact && (
+        <span className={`deadline-label deadline-label-${d.kind}`}>{d.label}</span>
+      )}
     </article>
   );
 }
@@ -144,7 +241,11 @@ export function TaskConflictBanner({
           </button>
         )}
         {onDismiss && (
-          <button onClick={onDismiss} aria-label="Dismiss conflict alert" className="text-muted-foreground hover:text-foreground">
+          <button
+            onClick={onDismiss}
+            aria-label="Dismiss conflict alert"
+            className="text-muted-foreground hover:text-foreground"
+          >
             <X className="size-3.5" />
           </button>
         )}
@@ -196,7 +297,11 @@ export function TaskErrorBanner({
           </button>
         )}
         {onDismiss && (
-          <button onClick={onDismiss} aria-label="Dismiss error notice" className="text-muted-foreground hover:text-foreground">
+          <button
+            onClick={onDismiss}
+            aria-label="Dismiss error notice"
+            className="text-muted-foreground hover:text-foreground"
+          >
             <X className="size-3.5" />
           </button>
         )}
@@ -214,13 +319,36 @@ export function TaskEmptyState({ message = "No blocks match this view." }: { mes
   );
 }
 
-export function HeatMap({ values = dailyCompletions, size = "md" }: { values?: number[]; size?: "md" | "lg" }) {
+export function HeatMap({
+  values = dailyCompletions,
+  size = "md",
+}: {
+  values?: number[];
+  size?: "md" | "lg";
+}) {
   const max = Math.max(...values);
-  const tone = (v: number) => v === 0 ? "bg-muted" : v >= max * 0.85 ? "bg-block-red" : v >= max * 0.55 ? "bg-block-blue" : v >= max * 0.3 ? "bg-block-yellow" : "bg-canvas";
+  const tone = (v: number) =>
+    v === 0
+      ? "bg-muted"
+      : v >= max * 0.85
+        ? "bg-block-red"
+        : v >= max * 0.55
+          ? "bg-block-blue"
+          : v >= max * 0.3
+            ? "bg-block-yellow"
+            : "bg-canvas";
   return (
-    <div className={`grid grid-cols-7 ${size === "lg" ? "gap-2" : "gap-1.5"}`} aria-label="Completion heat map">
+    <div
+      className={`grid grid-cols-7 ${size === "lg" ? "gap-2" : "gap-1.5"}`}
+      aria-label="Completion heat map"
+    >
       {values.map((v, i) => (
-        <span key={i} title={`${v} done`} style={{ animationDelay: `${(i % 7) * 60 + Math.floor(i / 7) * 120}ms` }} className={`heat-cell aspect-square border-2 border-grid ${tone(v)}`} />
+        <span
+          key={i}
+          title={`${v} done`}
+          style={{ animationDelay: `${(i % 7) * 60 + Math.floor(i / 7) * 120}ms` }}
+          className={`heat-cell aspect-square border-2 border-grid ${tone(v)}`}
+        />
       ))}
     </div>
   );
@@ -233,6 +361,8 @@ const pages = [
   { to: "/focus", label: "Focus" },
   { to: "/stats", label: "Stats" },
   { to: "/diary", label: "Diary" },
+  { to: "/devices", label: "Devices" },
+  { to: "/raphael", label: "Raphael" },
 ] as const;
 
 export function AppHeader() {
@@ -250,11 +380,18 @@ export function AppHeader() {
     <header className="app-header">
       <Link to="/" className="flex items-center justify-between border-r-[5px] border-grid px-4">
         <div>
-          <span className="block font-display text-xl uppercase leading-none tracking-tight">Blockday</span>
-          <span className="mt-0.5 block text-[8px] font-black uppercase tracking-[0.24em] text-muted-foreground">Boogie Woogie</span>
+          <span className="block font-display text-xl uppercase leading-none tracking-tight">
+            Blockday
+          </span>
+          <span className="mt-0.5 block text-[8px] font-black uppercase tracking-[0.24em] text-muted-foreground">
+            Boogie Woogie
+          </span>
         </div>
         <span className="grid h-7 w-7 grid-cols-2 grid-rows-2 border-2 border-grid" aria-hidden>
-          <i className="bg-block-red" /><i className="bg-canvas" /><i className="bg-block-blue" /><i className="bg-block-yellow" />
+          <i className="bg-block-red" />
+          <i className="bg-canvas" />
+          <i className="bg-block-blue" />
+          <i className="bg-block-yellow" />
         </span>
       </Link>
       <nav className="flex items-center gap-1 overflow-x-auto px-2" aria-label="Pages">
@@ -274,7 +411,9 @@ export function AppHeader() {
       <div className="flex items-center justify-end gap-3 border-l-[5px] border-grid px-4">
         {/* Mood filter section from Boogie Woogie reference */}
         <div className="hidden items-center gap-2 xl:flex">
-          <span className="text-[8px] font-black uppercase tracking-[0.16em] text-muted-foreground">In the mood for</span>
+          <span className="text-[8px] font-black uppercase tracking-[0.16em] text-muted-foreground">
+            In the mood for
+          </span>
           <div className="flex items-center gap-1">
             {moods.map((m) => {
               const active = moodFilter === m.mood;
@@ -292,7 +431,9 @@ export function AppHeader() {
 
         {/* Search Bar */}
         <div className="flex items-center border-2 border-grid bg-canvas px-2.5 py-1">
-          <span className="mr-2 text-[8px] font-black uppercase tracking-[0.18em] text-muted-foreground">Search</span>
+          <span className="mr-2 text-[8px] font-black uppercase tracking-[0.18em] text-muted-foreground">
+            Search
+          </span>
           <input
             aria-label="Search tasks"
             value={query}
@@ -314,6 +455,18 @@ export function AppHeader() {
             <span className="w-1/2 bg-background" />
           </div>
         </button>
+
+        {isCognitoConfigured() && getCognitoAccessToken() && (
+          <button
+            type="button"
+            aria-label="Sign out"
+            title="Sign out of Personal OS"
+            onClick={() => beginCognitoLogout()}
+            className="flex h-9 items-center justify-center border-2 border-grid bg-canvas px-2.5 text-[10px] font-bold uppercase transition-colors hover:bg-panel"
+          >
+            Sign out
+          </button>
+        )}
       </div>
     </header>
   );

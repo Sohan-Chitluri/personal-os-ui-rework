@@ -36,6 +36,10 @@ The additive Alembic revision `0005_sync_state` adds:
 - durable conflict records with base, local, and remote versions;
 - ordered change-feed events and explicit deletion tombstones.
 
+Revision `0007_sync_feed_cursors` adds durable owner-bound feed positions with
+expiration. The authenticated API stores only a hash of each random cursor
+token.
+
 The shared working tree also contains the pre-existing M2 revision
 `0005_device_operations`, which extends the same `0004_devices` parent. A local
 merge node joins those two heads for combined migration checks. That merge node
@@ -48,11 +52,21 @@ entity mutation and all resulting sync records in one transaction. Duplicate
 delivery replays the stored acknowledgement. If any write fails, the
 transaction rolls back the entity and sync records together.
 
-The store is isolated and is not called by API routes. M1 task/project API
-mutations do not yet append to the M3 feed, and `project_document` has no
-PostgreSQL sync mapping. Production synchronization must wait for API route
-integration, M1 revision coordination, M2 authenticated outbound transport,
-and cursor issuance/expiration. No live synchronization claim is made.
+M1 task/project repositories now append entity revision snapshots, feed events,
+and tombstones inside the same PostgreSQL transaction as create, update, and
+delete. Task project associations are included in task snapshots. Project sync
+snapshots currently include only `name`, `description`, and `status`;
+`project_document` has no PostgreSQL sync mapping. The authenticated API
+exposes v1 operation upload and change-feed retrieval. Upload batches are
+envelope-validated before processing, then handled in request order with one
+PostgreSQL transaction per operation. Each result is returned independently;
+an interrupted batch can be retried with the same idempotency keys. Feed
+cursors expire after 24 hours. Expired or invalid cursors recover by replaying
+the full retained feed from sequence zero. Feed history is not compacted; a
+snapshot endpoint is required before any retention policy can discard rows.
+Conflicts are inspectable through the owner-scoped conflict endpoint. M2
+authenticated outbound companion wiring and client integration remain
+outstanding. No live cloud/device sync claim is made.
 
 ## Contract and conflict review
 
@@ -65,11 +79,11 @@ cursors, and interrupted page application; Markdown fixtures cover safe
 non-overlapping merges and preservation of overlapping, rename, delete/edit,
 and missing-base conflicts.
 
-Before API integration, the live implementation still needs a PostgreSQL-backed
-opaque cursor with expiry and snapshot recovery. The current store exposes
-ordered sequence reads for isolated testing; it does not mint production
-cursors. The M1 CRUD routes also need to append their mutations to the same
-feed so sync clients cannot miss cloud-side changes.
+The API exposes persisted cursors with a full-retained-feed replay recovery
+path. PostgreSQL advisory transaction locks serialize per-owner feed sequence
+allocation through commit, so pagination cannot advance past a delayed lower
+sequence. Cursor expiry or an unknown cursor causes a complete replay rather
+than a jump to the feed head.
 
 ## Verification boundary
 

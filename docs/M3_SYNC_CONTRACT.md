@@ -1,9 +1,9 @@
 # M3 Offline Sync Contract (v1)
 
-This is a standalone contract for the M3 sync engine, queues, Markdown
-reconciliation, and simulator. It does not add or promise a production sync
-endpoint. PostgreSQL remains canonical for cloud tasks, projects, and
-operational state. Markdown files remain portable content artifacts.
+This describes the M3 sync engine, queues, Markdown reconciliation, simulator,
+and authenticated v1 synchronization API. PostgreSQL remains canonical for
+cloud tasks, projects, and operational state. Markdown files remain portable
+content artifacts.
 
 ## Storage placement and implementation status
 
@@ -13,8 +13,10 @@ operational state. Markdown files remain portable content artifacts.
   when connected. Durable disconnected companion edits are not supported yet.
 - Server receipts, entity revision snapshots, conflicts, change-feed events,
   and tombstones belong in PostgreSQL. The additive `0005_sync_state`
-  migration and `PostgresSyncStore` provide an isolated implementation for
-  canonical tasks and projects. They are not wired to production API routes.
+  migration and `PostgresSyncStore` provide persistence for canonical tasks
+  and projects. M1 task/project repository mutations now append revision
+  snapshots and feed events in the same PostgreSQL transaction. Authenticated
+  v1 upload and change-feed routes use this store.
 - PostgreSQL-backed tests require the local `personal_os_test` database and
   fail with an explicit setup message when it is unavailable. They do not
   switch to SQLite.
@@ -72,6 +74,19 @@ and key with the same canonical request body returns the stored acknowledgement
 without repeating side effects. Reusing either identifier with a different
 body is a permanent idempotency-key mismatch.
 
+The HTTP endpoint is `POST /api/v1/sync/operations` with
+`{"protocol_version":1,"operations":[...]}`. A batch contains 1–100
+operation envelopes. The server validates every envelope before applying any
+item, then processes validated operations in request order. Each operation
+uses its own PostgreSQL transaction and returns one acknowledgement in the
+same order. A conflict, retryable dependency result, or permanent operation
+failure does not prevent later items from being attempted. The batch is not an
+all-or-nothing transaction; after a timeout, clients retry the entire batch
+with the same operation IDs and idempotency keys. Replayed items return their
+stored result. A malformed envelope returns `422 invalid_operation` before
+the server applies any item. An unsupported protocol returns
+`409 protocol_mismatch` before applying the batch.
+
 The server checks the base revision before applying update, delete, or
 resolution. A missing entity, missing/expired base snapshot, stale revision,
 unsupported operation, and incompatible concurrent change have explicit
@@ -103,24 +118,37 @@ permanent failures and conflicts remain inspectable and recoverable.
 
 ## Change feed and resume
 
-The server issues cursors tied to a stable feed position. Pages are ordered and
-bounded, and provide `next_cursor` plus `has_more`. The client stores applied
-entities/tombstones and the next cursor in one local transaction (or an
-equivalent recoverable journal). It advances only after every item in that
-page is safely applied. Duplicate events are harmless. An expired cursor
-returns an explicit `cursor_expired` error and requires snapshot reconciliation
-before a new cursor is saved; the client must not skip directly to the current
-head.
+The HTTP endpoint is `GET /api/v1/sync/changes?cursor=<token>&limit=<n>`.
+`limit` defaults to 100 and must be 1–500. Pages are ordered by increasing
+PostgreSQL feed sequence and contain `items`, `next_cursor`,
+`cursor_expires_at`, and `has_more`. A cursor records the last sequence in the
+page, so a client applies every item and tombstone durably before saving
+`next_cursor`; interruption retries from the prior token and safely replays
+items. Owner-scoped PostgreSQL advisory transaction locks serialize feed
+sequence allocation through commit, preventing a later transaction from
+committing an earlier sequence after a client has advanced past it.
+
+Cursor tokens are random, opaque, owner-bound, and valid for 24 hours. Only a
+SHA-256 token hash, owner, sequence position, and expiry are persisted in
+PostgreSQL. Omitting the cursor starts replay from sequence zero. An unknown,
+malformed, or other-owner token returns `400 invalid_cursor`; a known expired
+token returns `410 cursor_expired`. For either error, clients discard their
+cursor and restart without one, replaying the entire retained feed in order.
+This recovery works because feed events and tombstones are currently retained
+without compaction. If retention or compaction is introduced, a snapshot
+recovery endpoint must be implemented before deleting feed history. The client
+must not jump to the current feed head after a cursor error.
+Expired cursor records are retained so the API can distinguish an expired
+token from an unknown token; cursor-record cleanup policy is deferred.
 
 ## Versioning and compatibility
 
-Protocol version 1 is required on every operation and successful response. A
-client first negotiates supported versions; a batch-level mismatch is returned
-using the server's supported error-envelope version (v1 here) and is a
-permanent, inspectable error that leaves queued operations intact. Successful
-upload responses match the negotiated request version. Unknown operation
-types or required fields are rejected rather than guessed. Additive optional
-fields may be ignored only when the negotiated version defines that behavior.
+Protocol version 1 is required on every operation and successful response.
+These routes currently support v1 only and do not expose a separate negotiation
+endpoint. Clients send version 1; a mismatch returns `409 protocol_mismatch`
+and leaves queued operations intact. Unknown operation types or required fields
+are rejected rather than guessed. Additive optional fields may be ignored only
+when the negotiated version defines that behavior.
 
 ## Conflict rules and older design notes
 
@@ -137,11 +165,19 @@ overwrite a newer revision.
 
 ## Integration boundary
 
-The current M1 API exposes revisioned task/project operations but does not
-implement the sync upload, acknowledgement, conflict resolution, or change-feed
-contract above. M2 device registration/authentication is also not a dependency
-of these local components. Production integration requires a separately
-reviewed API implementation and authenticated M2 client wiring. The isolated
-PostgreSQL store does not provide protocol negotiation, authenticated uploads,
-cursor issuance/expiration, or a production endpoint; the contract and
-simulator do not demonstrate live cloud/device synchronization.
+The API authenticates every route with the existing user bearer-token
+dependency and derives owner identity only from the authenticated user. Entity
+loads, project/capture associations, dependency receipts, idempotency receipts,
+conflicts, cursors, and feed reads are owner-scoped. Cross-owner entity reads
+are reported as missing/invalid without disclosing the other owner's data;
+cross-owner cursors are rejected as invalid. Missing or invalid bearer
+credentials return `401`.
+
+Revision conflicts are returned as per-operation `conflicted` acknowledgements
+with a durable conflict ID. Clients inspect the owner-scoped record through
+`GET /api/v1/sync/conflicts/{conflict_id}`. A revision conflict does not change
+the canonical entity. Missing conflicts, including conflicts owned by another
+user, return `404 conflict_not_found`. The API does not imply that the browser
+or companion client is integrated. M2 authenticated outbound connectivity is
+not yet connected to these routes, and the local simulator does not demonstrate
+live cloud/device synchronization.

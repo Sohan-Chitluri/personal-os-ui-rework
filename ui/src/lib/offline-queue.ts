@@ -948,11 +948,19 @@ class IndexedDbQueueStore implements QueueStore {
   private open(): Promise<IDBDatabase> {
     if (this.databasePromise) return this.databasePromise;
     this.databasePromise = new Promise<IDBDatabase>((resolve, reject) => {
-      const request = this.factory.open(this.databaseName, 1);
+      // Version 2 adds sync metadata and applied change stores in the shared
+      // browser database. Upgrade is additive; queued operations are retained.
+      const request = this.factory.open(this.databaseName, 2);
       request.onupgradeneeded = () => {
         const database = request.result;
         if (!database.objectStoreNames.contains("operations")) {
           database.createObjectStore("operations", { keyPath: "operation_id" });
+        }
+        if (!database.objectStoreNames.contains("sync_metadata")) {
+          database.createObjectStore("sync_metadata", { keyPath: "key" });
+        }
+        if (!database.objectStoreNames.contains("applied_changes")) {
+          database.createObjectStore("applied_changes", { keyPath: "event_id" });
         }
       };
       request.onsuccess = () => resolve(request.result);

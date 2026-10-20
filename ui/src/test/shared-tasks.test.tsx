@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from "@t
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { taskApi, TaskApiError, TaskConflictError } from "@/lib/task-api";
+import { projectApi } from "@/lib/project-api";
 import { BlockdayProvider, useBlockday, useTasks } from "@/lib/blockday-store";
 import {
   backendToTask,
@@ -14,6 +15,7 @@ import {
   type Task,
 } from "@/lib/task-types";
 import { ProjectsPage } from "@/routes/projects";
+
 
 // Mock backend tasks
 const mockBackendTasks: BackendTask[] = [
@@ -48,6 +50,13 @@ const mockBackendTasks: BackendTask[] = [
 ];
 
 function createWrapper() {
+  vi.spyOn(projectApi, "listProjects").mockResolvedValue({
+    total: 2,
+    items: [
+      { id: "blockday", owner_id: "user_1", name: "Blockday launch", description: null, status: "active", revision: 1, created_at: "2026-10-18T10:00:00Z", updated_at: "2026-10-18T10:00:00Z" },
+      { id: "studio", owner_id: "user_1", name: "Studio", description: null, status: "active", revision: 1, created_at: "2026-10-18T10:00:00Z", updated_at: "2026-10-18T10:00:00Z" },
+    ],
+  });
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: {
@@ -142,16 +151,21 @@ describe("M1-E: Shared Task Model & API Client", () => {
         headers: expect.objectContaining({
           "If-Match": "2",
           "Content-Type": "application/json",
-          Authorization: "Bearer dev-user",
         }),
       })
     );
+    const sentHeaders = new Headers(fetchSpy.mock.calls[0]?.[1]?.headers);
+    expect(sentHeaders.has("Authorization")).toBe(false);
   });
 });
 
 describe("M1-E: Cross-View Unified Task State", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    vi.spyOn(projectApi, "listProjects").mockResolvedValue({ total: 2, items: [
+      { id: "blockday", owner_id: "user_1", name: "Blockday launch", description: null, status: "active", revision: 1, created_at: "2026-10-18T10:00:00Z", updated_at: "2026-10-18T10:00:00Z" },
+      { id: "studio", owner_id: "user_1", name: "Studio", description: null, status: "active", revision: 1, created_at: "2026-10-18T10:00:00Z", updated_at: "2026-10-18T10:00:00Z" },
+    ] });
     localStorage.clear();
   });
 
@@ -353,7 +367,7 @@ describe("M1-E: Cross-View Unified Task State", () => {
     );
 
     // Projects page renders
-    expect(screen.getByText(/Project Tasks/i)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText(/Project Tasks/i)).toBeInTheDocument());
   });
 });
 
@@ -727,6 +741,10 @@ describe("Workstream D: Cross-page consistency", () => {
   beforeEach(() => {
     cleanup();
     vi.restoreAllMocks();
+    vi.spyOn(projectApi, "listProjects").mockResolvedValue({ total: 2, items: [
+      { id: "blockday", owner_id: "user_1", name: "Blockday launch", description: null, status: "active", revision: 1, created_at: "2026-10-18T10:00:00Z", updated_at: "2026-10-18T10:00:00Z" },
+      { id: "studio", owner_id: "user_1", name: "Studio", description: null, status: "active", revision: 1, created_at: "2026-10-18T10:00:00Z", updated_at: "2026-10-18T10:00:00Z" },
+    ] });
     localStorage.clear();
   });
 
@@ -762,7 +780,7 @@ describe("Workstream D: Cross-page consistency", () => {
     fireEvent.submit(input.closest("form")!);
 
     await waitFor(() => {
-      expect(screen.getByText(/Network failure/i)).toBeInTheDocument();
+      expect(screen.getAllByText(/Network failure/i).length).toBeGreaterThan(0);
     });
   });
 

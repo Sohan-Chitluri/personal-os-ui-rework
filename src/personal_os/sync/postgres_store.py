@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import secrets
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -24,6 +25,7 @@ from sqlalchemy import (
     Integer,
     String,
     Uuid,
+    delete,
     or_,
     select,
     text,
@@ -43,6 +45,7 @@ from personal_os.sync.contracts import (
     EntitySnapshot,
     EntityType,
     ErrorCategory,
+    OperationType,
     SyncOperation,
     Tombstone,
 )
@@ -51,6 +54,7 @@ from personal_os.sync.engine import (
     OperationReceipt,
     SyncEngine,
 )
+from personal_os.sync.feed_lock import lock_owner_feed
 
 
 class SyncOperationReceipt(Base):
@@ -178,6 +182,42 @@ class SyncTombstone(Base):
     deleted_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
 
 
+class SyncFeedCursor(Base):
+    """Durable, owner-bound cursor tokens for the change feed."""
+
+    __tablename__ = "sync_feed_cursors"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(
+        ULIDType, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    sequence: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    issued_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(TZDateTime, nullable=False)
+
+    __table_args__ = (Index("ix_sync_feed_cursors_owner_expiry", "owner_id", "expires_at"),)
+
+
+@dataclass(frozen=True, slots=True)
+class ChangeFeedPage:
+    items: tuple[ChangeFeedItem, ...]
+    next_cursor: str
+    cursor_expires_at: datetime
+    has_more: bool
+
+
+class SyncCursorError(Exception):
+    """Base class for invalid or expired owner-scoped feed cursors."""
+
+
+class InvalidSyncCursorError(SyncCursorError):
+    """The supplied token is malformed, unknown, or belongs to another user."""
+
+
+class ExpiredSyncCursorError(SyncCursorError):
+    """The supplied token is known but has expired."""
+
+
 @dataclass(frozen=True, slots=True)
 class _PendingCommit:
     operation: SyncOperation
@@ -273,7 +313,7 @@ class PostgresSyncStore:
 
     ``session_factory`` must be bound to PostgreSQL. This class rejects other
     dialects rather than providing an SQLite fallback. Callers supply the
-    authenticated owner's ID; this store is not yet exposed through an API.
+    authenticated owner's ID; API handlers must never accept it from payloads.
     """
 
     _ENTITY_MODELS: dict[EntityType, Any] = {
@@ -369,6 +409,23 @@ class PostgresSyncStore:
                     )
                     return acknowledgement
                 current_row = await self._load_entity(session, owner_id, operation)
+                if (
+                    current_row is None
+                    and operation.operation_type == OperationType.CREATE
+                    and await self._entity_id_exists_for_other_owner(
+                        session, owner_id, operation
+                    )
+                ):
+                    acknowledgement = self._permanent(
+                        operation,
+                        ErrorCategory.INVALID_OPERATION,
+                        "entity identity is unavailable",
+                    )
+                    await self._record_receipt(
+                        session, owner_id, operation, fingerprint, acknowledgement
+                    )
+                    await session.flush()
+                    return acknowledgement
 
             current = _snapshot_from_row(operation.entity_type, operation.entity_id, current_row)
             history = await self._load_revisions(
@@ -477,6 +534,85 @@ class PostgresSyncStore:
                 )
             return tuple(items)
 
+    async def get_change_page(
+        self,
+        owner_id: str,
+        *,
+        cursor: str | None = None,
+        limit: int = 100,
+        cursor_ttl: timedelta = timedelta(hours=24),
+    ) -> ChangeFeedPage:
+        """Return an ordered feed page and persist its next opaque cursor.
+
+        Omitting ``cursor`` starts a full replay from sequence zero. A next
+        cursor records the last item returned, so interruption safely replays
+        the page from the caller's previous cursor.
+        """
+        if not 1 <= limit <= 500:
+            raise ValueError("limit must be between 1 and 500")
+        if cursor_ttl <= timedelta(0):
+            raise ValueError("cursor_ttl must be positive")
+
+        async with self._session_factory() as session, session.begin():
+            now = datetime.now(UTC)
+            position = 0
+            if cursor is not None:
+                if not 32 <= len(cursor) <= 128:
+                    raise InvalidSyncCursorError
+                try:
+                    token_hash = hashlib.sha256(cursor.encode("ascii")).hexdigest()
+                except UnicodeEncodeError as exc:
+                    raise InvalidSyncCursorError from exc
+                record = await session.get(SyncFeedCursor, token_hash)
+                if record is None or record.owner_id != owner_id:
+                    raise InvalidSyncCursorError
+                if record.expires_at <= now:
+                    raise ExpiredSyncCursorError
+                position = record.sequence
+
+            await session.execute(
+                delete(SyncFeedCursor).where(
+                    SyncFeedCursor.owner_id == owner_id,
+                    SyncFeedCursor.expires_at <= now,
+                )
+            )
+
+            rows = (
+                await session.execute(
+                    select(SyncChangeEvent)
+                    .where(
+                        SyncChangeEvent.owner_id == owner_id,
+                        SyncChangeEvent.sequence > position,
+                    )
+                    .order_by(SyncChangeEvent.sequence)
+                    .limit(limit + 1)
+                )
+            ).scalars().all()
+            has_more = len(rows) > limit
+            page_rows = rows[:limit]
+            items = tuple(_change_item(row) for row in page_rows)
+            next_position = items[-1].sequence if items else position
+
+            token = secrets.token_urlsafe(32)
+            issued_at = datetime.now(UTC)
+            expires_at = issued_at + cursor_ttl
+            session.add(
+                SyncFeedCursor(
+                    token_hash=hashlib.sha256(token.encode("ascii")).hexdigest(),
+                    owner_id=owner_id,
+                    sequence=next_position,
+                    issued_at=issued_at,
+                    expires_at=expires_at,
+                )
+            )
+            await session.flush()
+            return ChangeFeedPage(
+                items=items,
+                next_cursor=token,
+                cursor_expires_at=expires_at,
+                has_more=has_more,
+            )
+
     async def get_conflict(self, owner_id: str, conflict_id: UUID) -> ConflictRecord | None:
         async with self._session_factory() as session:
             row = await session.get(SyncConflict, conflict_id)
@@ -571,6 +707,15 @@ class PostgresSyncStore:
         )
         return result.scalar_one_or_none()
 
+    async def _entity_id_exists_for_other_owner(
+        self, session: AsyncSession, owner_id: str, operation: SyncOperation
+    ) -> bool:
+        model = self._ENTITY_MODELS[operation.entity_type]
+        existing = await session.scalar(
+            select(model.id).where(model.id == operation.entity_id, model.owner_id != owner_id)
+        )
+        return existing is not None
+
     async def _load_revisions(
         self,
         session: AsyncSession,
@@ -664,6 +809,7 @@ class PostgresSyncStore:
     async def _append_change(
         self, session: AsyncSession, owner_id: str, snapshot: EntitySnapshot
     ) -> None:
+        await lock_owner_feed(session, owner_id)
         event_id = uuid4()
         event = SyncChangeEvent(
             event_id=event_id,
@@ -789,6 +935,20 @@ class PostgresSyncStore:
 
 class _ReceiptMismatch:
     """Sentinel recognized by the pre-engine idempotency check."""
+
+
+def _change_item(row: SyncChangeEvent) -> ChangeFeedItem:
+    return ChangeFeedItem(
+        event_id=row.event_id,
+        sequence=row.sequence,
+        entity_type=EntityType(row.entity_type),
+        entity_id=row.entity_id,
+        revision=row.revision,
+        snapshot=(
+            EntitySnapshot.model_validate(row.snapshot) if row.snapshot is not None else None
+        ),
+        tombstone=(Tombstone.model_validate(row.tombstone) if row.tombstone is not None else None),
+    )
 
 
 def _snapshot_from_row(
