@@ -2,23 +2,129 @@ const ACCESS_TOKEN_KEY = "personal-os-access-token";
 const CODE_VERIFIER_KEY = "personal-os-pkce-verifier";
 const OAUTH_STATE_KEY = "personal-os-oauth-state";
 
-const authConfig = {
+export function normalizeCognitoDomain(rawDomain?: string | null): string | null {
+  if (!rawDomain) return null;
+  const trimmed = rawDomain.trim();
+  if (!trimmed) return null;
+  const withProtocol = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  try {
+    const parsed = new URL(withProtocol);
+    if (!parsed.hostname || (parsed.protocol !== "https:" && parsed.protocol !== "http:")) {
+      return null;
+    }
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
+export function normalizeRedirectUri(rawUri?: string | null): string | null {
+  if (!rawUri) return null;
+  const trimmed = rawUri.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = new URL(trimmed);
+    if (!parsed.protocol || (parsed.protocol !== "https:" && parsed.protocol !== "http:")) {
+      return null;
+    }
+    return parsed.href;
+  } catch {
+    return null;
+  }
+}
+
+export interface CognitoConfigValidation {
+  valid: boolean;
+  domain?: string;
+  clientId?: string;
+  redirectUri?: string;
+  logoutUri?: string;
+  error?: string;
+}
+
+export function validateCognitoConfig(): CognitoConfigValidation {
+  const rawDomain = import.meta.env["VITE_COGNITO_HOSTED_UI_DOMAIN"] as string | undefined;
+  const rawClientId = import.meta.env["VITE_COGNITO_APP_CLIENT_ID"] as string | undefined;
+  const rawRedirectUri = import.meta.env["VITE_COGNITO_REDIRECT_URI"] as string | undefined;
+  const rawLogoutUri = import.meta.env["VITE_COGNITO_LOGOUT_URI"] as string | undefined;
+
+  const hasAny = Boolean(rawDomain || rawClientId || rawRedirectUri || rawLogoutUri);
+  if (!hasAny) {
+    return { valid: false, error: "Cognito sign-in is not configured for this build." };
+  }
+
+  if (!rawDomain || !rawDomain.trim()) {
+    return { valid: false, error: "Cognito configuration error: missing domain (VITE_COGNITO_HOSTED_UI_DOMAIN)." };
+  }
+  const domain = normalizeCognitoDomain(rawDomain);
+  if (!domain) {
+    return {
+      valid: false,
+      error: `Cognito configuration error: invalid domain "${rawDomain}". Expected a valid hostname or HTTPS URL.`,
+    };
+  }
+
+  const clientId = rawClientId?.trim();
+  if (!clientId) {
+    return { valid: false, error: "Cognito configuration error: missing App Client ID (VITE_COGNITO_APP_CLIENT_ID)." };
+  }
+
+  if (!rawRedirectUri || !rawRedirectUri.trim()) {
+    return { valid: false, error: "Cognito configuration error: missing redirect URI (VITE_COGNITO_REDIRECT_URI)." };
+  }
+  const redirectUri = normalizeRedirectUri(rawRedirectUri);
+  if (!redirectUri) {
+    return {
+      valid: false,
+      error: `Cognito configuration error: invalid redirect URI "${rawRedirectUri}". Expected an absolute HTTP/HTTPS URL.`,
+    };
+  }
+
+  let logoutUri: string | undefined;
+  if (rawLogoutUri && rawLogoutUri.trim()) {
+    logoutUri = normalizeRedirectUri(rawLogoutUri) || undefined;
+    if (!logoutUri) {
+      return {
+        valid: false,
+        error: `Cognito configuration error: invalid logout URI "${rawLogoutUri}". Expected an absolute HTTP/HTTPS URL.`,
+      };
+    }
+  }
+
+  return {
+    valid: true,
+    domain,
+    clientId,
+    redirectUri,
+    logoutUri,
+  };
+}
+
+export function hasCognitoEnv(): boolean {
+  return Boolean(
+    import.meta.env["VITE_COGNITO_HOSTED_UI_DOMAIN"] ||
+    import.meta.env["VITE_COGNITO_APP_CLIENT_ID"] ||
+    import.meta.env["VITE_COGNITO_REDIRECT_URI"]
+  );
+}
+
+export const authConfig = {
   get domain() {
-    return import.meta.env["VITE_COGNITO_HOSTED_UI_DOMAIN"] as string | undefined;
+    return validateCognitoConfig().domain;
   },
   get clientId() {
-    return import.meta.env["VITE_COGNITO_APP_CLIENT_ID"] as string | undefined;
+    return validateCognitoConfig().clientId;
   },
   get redirectUri() {
-    return import.meta.env["VITE_COGNITO_REDIRECT_URI"] as string | undefined;
+    return validateCognitoConfig().redirectUri;
   },
   get logoutUri() {
-    return import.meta.env["VITE_COGNITO_LOGOUT_URI"] as string | undefined;
+    return validateCognitoConfig().logoutUri;
   },
 };
 
 export function isCognitoConfigured(): boolean {
-  return Boolean(authConfig.domain && authConfig.clientId && authConfig.redirectUri);
+  return validateCognitoConfig().valid;
 }
 
 export function isTokenExpired(token: string): boolean {
@@ -79,18 +185,21 @@ async function sha256UrlSafe(value: string): Promise<string> {
 }
 
 export async function beginCognitoLogin(): Promise<void> {
-  if (!isCognitoConfigured()) throw new Error("Cognito sign-in is not configured for this build.");
+  const config = validateCognitoConfig();
+  if (!config.valid || !config.domain || !config.clientId || !config.redirectUri) {
+    throw new Error(config.error || "Cognito sign-in is not configured for this build.");
+  }
   const verifier = randomUrlSafe(64);
   const state = randomUrlSafe(32);
   sessionStorage.setItem(CODE_VERIFIER_KEY, verifier);
   sessionStorage.setItem(OAUTH_STATE_KEY, state);
 
-  const url = new URL("/oauth2/authorize", authConfig.domain);
+  const url = new URL("/oauth2/authorize", config.domain);
   url.search = new URLSearchParams({
-    client_id: authConfig.clientId!,
+    client_id: config.clientId,
     response_type: "code",
     scope: "openid email profile",
-    redirect_uri: authConfig.redirectUri!,
+    redirect_uri: config.redirectUri,
     code_challenge_method: "S256",
     code_challenge: await sha256UrlSafe(verifier),
     state,
@@ -99,7 +208,10 @@ export async function beginCognitoLogin(): Promise<void> {
 }
 
 export async function completeCognitoLogin(search: string): Promise<void> {
-  if (!isCognitoConfigured()) throw new Error("Cognito sign-in is not configured for this build.");
+  const config = validateCognitoConfig();
+  if (!config.valid || !config.domain || !config.clientId || !config.redirectUri) {
+    throw new Error(config.error || "Cognito sign-in is not configured for this build.");
+  }
   const params = new URLSearchParams(search);
   const oauthError = params.get("error_description") || params.get("error");
   if (oauthError) throw new Error(`Sign-in failed: ${oauthError}`);
@@ -112,14 +224,14 @@ export async function completeCognitoLogin(search: string): Promise<void> {
     throw new Error("Sign-in response was incomplete or could not be verified. Please try again.");
   }
 
-  const response = await fetch(new URL("/oauth2/token", authConfig.domain), {
+  const response = await fetch(new URL("/oauth2/token", config.domain), {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       grant_type: "authorization_code",
-      client_id: authConfig.clientId!,
+      client_id: config.clientId,
       code,
-      redirect_uri: authConfig.redirectUri!,
+      redirect_uri: config.redirectUri,
       code_verifier: verifier,
     }),
   });
@@ -145,18 +257,19 @@ export function clearCognitoSession(): void {
 export function beginCognitoLogout(customLogoutUri?: string): void {
   clearCognitoSession();
   if (typeof window === "undefined") return;
-  if (!isCognitoConfigured() || !authConfig.domain || !authConfig.clientId) {
+  const config = validateCognitoConfig();
+  if (!config.valid || !config.domain || !config.clientId) {
     window.location.assign("/");
     return;
   }
   const logoutUri =
     customLogoutUri ||
-    authConfig.logoutUri ||
-    authConfig.redirectUri?.replace(/\/auth\/callback$/, "/") ||
+    config.logoutUri ||
+    config.redirectUri?.replace(/\/auth\/callback$/, "/") ||
     `${window.location.origin}/`;
-  const url = new URL("/logout", authConfig.domain);
+  const url = new URL("/logout", config.domain);
   url.search = new URLSearchParams({
-    client_id: authConfig.clientId,
+    client_id: config.clientId,
     logout_uri: logoutUri,
   }).toString();
   window.location.assign(url.toString());

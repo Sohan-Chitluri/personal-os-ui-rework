@@ -18,7 +18,13 @@ import { BlockdayProvider } from "@/lib/blockday-store";
 import { AppSidebar } from "@/components/blockday-sidebar";
 import { RaphaelOverlay } from "@/components/raphael-overlay";
 import { SyncStatusPanel } from "@/components/sync-status-panel";
-import { beginCognitoLogin, getCognitoAccessToken, isCognitoConfigured } from "@/lib/auth";
+import {
+  beginCognitoLogin,
+  getCognitoAccessToken,
+  hasCognitoEnv,
+  isCognitoConfigured,
+  validateCognitoConfig,
+} from "@/lib/auth";
 
 function NotFoundComponent() {
   return (
@@ -129,7 +135,7 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
-  if (isCognitoConfigured() && !getCognitoAccessToken() && pathname !== "/auth/callback") {
+  if ((isCognitoConfigured() || hasCognitoEnv()) && !getCognitoAccessToken() && pathname !== "/auth/callback") {
     return <SignInScreen />;
   }
 
@@ -155,6 +161,14 @@ function RootComponent() {
 
 function SignInScreen() {
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const configCheck = validateCognitoConfig();
+    if (!configCheck.valid && configCheck.error) {
+      setError(configCheck.error);
+    }
+  }, []);
+
   return (
     <main className="mx-auto my-20 max-w-md border-2 border-grid bg-canvas p-8">
       <p className="section-label">Personal OS</p>

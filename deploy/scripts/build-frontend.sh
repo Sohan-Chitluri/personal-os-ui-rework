@@ -29,14 +29,21 @@ if [[ -z "$COGNITO_DOMAIN" || -z "$COGNITO_CLIENT_ID" || -z "$FRONTEND_URL" ]]; 
   fi
 fi
 
+if [[ -n "$COGNITO_DOMAIN" && "$COGNITO_DOMAIN" != http://* && "$COGNITO_DOMAIN" != https://* ]]; then
+  COGNITO_DOMAIN="https://${COGNITO_DOMAIN}"
+fi
+
 export VITE_COGNITO_HOSTED_UI_DOMAIN="${COGNITO_DOMAIN:-}"
 export VITE_COGNITO_APP_CLIENT_ID="${COGNITO_CLIENT_ID:-}"
 if [[ -n "$FRONTEND_URL" ]]; then
   export VITE_COGNITO_REDIRECT_URI="${FRONTEND_URL%/}/auth/callback"
+  export VITE_COGNITO_LOGOUT_URI="${FRONTEND_URL%/}/"
 elif [[ -n "${VITE_COGNITO_REDIRECT_URI:-}" ]]; then
   export VITE_COGNITO_REDIRECT_URI="${VITE_COGNITO_REDIRECT_URI}"
+  export VITE_COGNITO_LOGOUT_URI="${VITE_COGNITO_LOGOUT_URI:-}"
 else
   export VITE_COGNITO_REDIRECT_URI=""
+  export VITE_COGNITO_LOGOUT_URI=""
 fi
 
 npm run build
