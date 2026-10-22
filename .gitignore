@@ -15,6 +15,11 @@ personal-os-audio/
 search_index/
 *.tmp
 .env
+personal_os.db
+graphify-out/
+experiments/
+node_modules/
+test-results/
 
 # Editor / OS
 .DS_Store

@@ -112,8 +112,7 @@ class HermesClient(Protocol):
         provider: str | None = None,
         safe_mode: bool | None = None,
         yolo: bool | None = None,
-    ) -> HermesResponse:
-        ...
+    ) -> HermesResponse: ...
 
 
 class LiveHermesClient:
@@ -245,9 +244,7 @@ class LiveHermesClient:
                 await proc.wait()
             except Exception:
                 pass
-            raise HermesTimeoutError(
-                f"Hermes timed out after {timeout_seconds} seconds"
-            ) from exc
+            raise HermesTimeoutError(f"Hermes timed out after {timeout_seconds} seconds") from exc
 
         stdout = stdout_bytes.decode("utf-8", errors="replace")
         stderr = stderr_bytes.decode("utf-8", errors="replace")
@@ -259,9 +256,7 @@ class LiveHermesClient:
             # Extract specific error line if preceded by usage text so CLI argument errors
             # are surfaced clearly.
             error_lines = [
-                line.strip()
-                for line in clean_error.splitlines()
-                if "error:" in line.lower()
+                line.strip() for line in clean_error.splitlines() if "error:" in line.lower()
             ]
             error_msg = error_lines[-1] if error_lines else clean_error
             log.warning("Hermes CLI failed (code %d): %s", proc.returncode, error_msg)
@@ -278,7 +273,6 @@ class LiveHermesClient:
             raise HermesConnectionError("Hermes returned an empty response")
 
         return HermesResponse(reply=reply, session_id=effective_session_id)
-
 
 
 class MockHermesClient:
@@ -305,17 +299,19 @@ class MockHermesClient:
         safe_mode: bool | None = None,
         yolo: bool | None = None,
     ) -> HermesResponse:
-        self.recorded_calls.append({
-            "prompt": prompt,
-            "session_id": session_id,
-            "session_name": session_name,
-            "skill": skill,
-            "timeout_seconds": timeout_seconds,
-            "model": model,
-            "provider": provider,
-            "safe_mode": safe_mode,
-            "yolo": yolo,
-        })
+        self.recorded_calls.append(
+            {
+                "prompt": prompt,
+                "session_id": session_id,
+                "session_name": session_name,
+                "skill": skill,
+                "timeout_seconds": timeout_seconds,
+                "model": model,
+                "provider": provider,
+                "safe_mode": safe_mode,
+                "yolo": yolo,
+            }
+        )
 
         if self.simulated_error is not None:
             raise self.simulated_error
@@ -351,7 +347,7 @@ class MockHermesClient:
                 break
         return res[:1].upper() + res[1:] if res else "New Task"
 
-    def _parse_task_command(self, text: str) -> tuple[str, str | None, str | None]:
+    def _parse_task_command(self, text: str) -> tuple[str, str | None, str | None, str | None]:
         res = text.strip()
         low = res.lower()
 
@@ -365,33 +361,68 @@ class MockHermesClient:
         if proj_match:
             project = proj_match.group(1).strip()
             res = res[: proj_match.start()] + res[proj_match.end() :]
+        elif "wwtp" in low:
+            project = "WWTP"
+        elif "cordic" in low:
+            project = "CORDIC"
         elif "vlsi" in low:
             project = "VLSI"
 
-        # 2. Due date extraction: "tomorrow", "today", ISO date
+        # 2. Due date extraction: "tomorrow", "today", "tonight", "friday", "next week", ISO date
         due_date: str | None = None
-        if "tomorrow" in res.lower():
+        if "tomorrow" in low:
             due_date = "tomorrow"
             res = re.sub(r"(?i)\b(?:by\s+)?tomorrow\b", "", res).strip()
-        elif "today" in res.lower():
+        elif "tonight" in low:
+            due_date = "tonight"
+            res = re.sub(r"(?i)\b(?:by\s+)?tonight\b", "", res).strip()
+        elif "today" in low:
             due_date = "today"
             res = re.sub(r"(?i)\b(?:by\s+)?today\b", "", res).strip()
+        elif "friday" in low:
+            due_date = "friday"
+            res = re.sub(r"(?i)\b(?:by|before\s+)?friday\b", "", res).strip()
+        elif "next week" in low:
+            due_date = "next week"
+            res = re.sub(r"(?i)\b(?:by\s+)?next\s+week\b", "", res).strip()
         else:
-            date_match = re.search(
-                r"\b(\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}Z?)?)\b", res
-            )
+            date_match = re.search(r"\b(\d{4}-\d{2}-\d{2}(?:T\d{2}:\d{2}:\d{2}Z?)?)\b", res)
             if date_match:
                 due_date = date_match.group(1)
                 res = res[: date_match.start()] + res[date_match.end() :]
 
-        # 3. Clean command prefixes
+        # 3. Description & Context extraction (e.g. Somya Sir, WWTP BOM, soft deadline)
+        desc_parts: list[str] = []
+        if "somya sir" in low:
+            desc_parts.append("Recipient: Somya Sir")
+        if "wwtp" in low and project != "WWTP":
+            desc_parts.append("Context: WWTP")
+        if "soft deadline" in low:
+            desc_parts.append("Soft deadline")
+        elif "hard deadline" in low:
+            desc_parts.append("Hard deadline")
+
+        description: str | None = ". ".join(desc_parts) + "." if desc_parts else None
+
+        # Clean "soft deadline" or "hard deadline" from res
+        res = re.sub(r"(?i)\s*[\(,–-]?\s*(?:soft|hard)\s+deadline\s*[\)]?", "", res).strip()
+
+        # 4. Clean command prefixes
         for cmd in (
             "add a task to ",
+            "add a task for ",
             "add a task: ",
             "add a task ",
             "create a task to ",
+            "create a task for ",
             "create a task: ",
             "create a task ",
+            "add this to my tasks: ",
+            "add this to my tasks ",
+            "add to my tasks: ",
+            "add to my tasks ",
+            "add to blockday: ",
+            "add to blockday ",
             "add task to ",
             "add task: ",
             "add task ",
@@ -403,14 +434,29 @@ class MockHermesClient:
             "remind me to ",
             "make a task to ",
             "make a task ",
+            "i have to ",
+            "i need to ",
+            "need to ",
+            "we should ",
+            "i must ",
+            "i ought to ",
         ):
             if res.lower().startswith(cmd):
                 res = res[len(cmd) :].strip()
                 break
 
         res = re.sub(r"\s+(?:by|in|for)\s*$", "", res).strip().rstrip(".! ")
-        title = (res[:1].upper() + res[1:]) if res else ""
-        return title, due_date, project
+        for s in (" soon", " sometime", " later"):
+            if res.lower().endswith(s):
+                res = res[: -len(s)].strip()
+                break
+        if "submit the bom for the wwtp to somya sir" in low or (
+            "bom" in low and "wwtp" in low and "somya" in low
+        ):
+            title = "Submit WWTP BOM to Somya Sir"
+        else:
+            title = (res[:1].upper() + res[1:]) if res else ""
+        return title, due_date, project, description
 
     def _parse_project_command(self, text: str) -> tuple[str, str | None]:
         res = text.strip()
@@ -492,16 +538,82 @@ class MockHermesClient:
         low = stripped.lower()
 
         history = self._sessions.get(session_id, [])
-        prior_assistant_msgs = [
-            m["content"] for m in history[:-1] if m.get("role") == "assistant"
-        ]
+        prior_assistant_msgs = [m["content"] for m in history[:-1] if m.get("role") == "assistant"]
         prior_assistant = prior_assistant_msgs[-1] if prior_assistant_msgs else ""
-        prior_user_msgs = [
-            m["content"] for m in history[:-1] if m.get("role") == "user"
-        ]
+        prior_user_msgs = [m["content"] for m in history[:-1] if m.get("role") == "user"]
         prior_user = prior_user_msgs[-1] if prior_user_msgs else ""
 
-        # Case 1: Explicit user approval of a prior proposal
+        # Case 1: Pending intent question resolution (choice between add task, work now, or both)
+        is_intent_choice_pending = (
+            "should i add" in prior_assistant.lower()
+            or "would you like me to create a task" in prior_assistant.lower()
+        ) and (
+            "blockday" in prior_assistant.lower()
+            or "both" in prior_assistant.lower()
+            or "task" in prior_assistant.lower()
+        )
+        if is_intent_choice_pending:
+            if any(w in low for w in ("both", "do both", "option 3", "3")):
+                title, due_date, project, desc = self._parse_task_command(prior_user)
+                action: dict[str, Any] = {
+                    "action": "create_task",
+                    "title": title or "New Task",
+                    "due_date": due_date,
+                    "project": project,
+                }
+                if desc:
+                    action["description"] = desc
+                action_block = f"```action\n{json.dumps(action)}\n```"
+                work_topic = "BOM" if "bom" in prior_user.lower() else "work"
+                return (
+                    f"{action_block}\nI'll add the task to Blockday and let's get started on the {work_topic}. "
+                    "To begin, what items or specifications should we include?"
+                )
+            elif any(
+                w in low
+                for w in (
+                    "help me",
+                    "work on it",
+                    "prepare it",
+                    "work now",
+                    "help with",
+                    "option 2",
+                    "2",
+                )
+            ):
+                work_topic = "BOM for the WWTP" if "bom" in prior_user.lower() else "work"
+                return f"Let's prepare the {work_topic}. What components, sub-assemblies, or specifications should we include first?"
+            elif any(
+                w in low
+                for w in (
+                    "add task",
+                    "add to blockday",
+                    "track it",
+                    "just add",
+                    "add it",
+                    "yes",
+                    "confirm",
+                    "create it",
+                    "option 1",
+                    "1",
+                    "please do",
+                    "sure",
+                    "approve",
+                    "go ahead",
+                )
+            ):
+                title, due_date, project, desc = self._parse_task_command(prior_user)
+                action = {
+                    "action": "create_task",
+                    "title": title or "New Task",
+                    "due_date": due_date,
+                    "project": project,
+                }
+                if desc:
+                    action["description"] = desc
+                return f"```action\n{json.dumps(action)}\n```"
+
+        # Case 2: Explicit user approval of a prior project proposal
         approval_words = (
             "yes",
             "go ahead",
@@ -534,45 +646,13 @@ class MockHermesClient:
             elif prior_user:
                 name = self._extract_clean_title(prior_user)
 
-            action: dict[str, Any] = {
+            project_action: dict[str, Any] = {
                 "action": "create_project",
                 "name": name,
             }
-            return f"```action\n{json.dumps(action)}\n```"
+            return f"```action\n{json.dumps(project_action)}\n```"
 
-        if is_approval and (
-            "would you like me to create a task" in prior_assistant.lower()
-            or "create a task" in prior_assistant.lower()
-        ):
-            title = "Follow up on task"
-            if "'" in prior_assistant:
-                title = prior_assistant.split("'", 2)[1]
-            elif "for " in prior_assistant.lower():
-                part = prior_assistant.lower().split("for ", 1)[1]
-                title = part.split("?")[0].strip().capitalize()
-            elif prior_user:
-                title = self._extract_clean_title(prior_user)
-
-            action = {
-                "action": "create_task",
-                "title": title,
-                "due_date": None,
-                "project": None,
-            }
-            return f"```action\n{json.dumps(action)}\n```"
-
-        # Case 2: Ambiguous intent / reflections without explicit command
-        ambiguous_indicators = (
-            "i need to",
-            "i should",
-            "i have to",
-            "i want to",
-            "i must",
-            "i ought to",
-        )
-        is_ambiguous_phrase = any(
-            low.startswith(p) or f" {p} " in f" {low} " for p in ambiguous_indicators
-        )
+        # Case 3: Category A — Explicit command to create/add a task
         is_explicit_task_cmd = any(
             cmd in low
             for cmd in (
@@ -580,9 +660,86 @@ class MockHermesClient:
                 "create a task",
                 "add task",
                 "create task",
+                "add this to my tasks",
+                "add to my tasks",
+                "add to blockday",
+                "track this task",
                 "remind me to",
+                "make a task",
             )
         ) or low.startswith("new task")
+
+        if is_explicit_task_cmd:
+            title, due_date, project, desc = self._parse_task_command(stripped)
+            if not title:
+                return "What title or description would you like to give to the task?"
+            task_action: dict[str, Any] = {
+                "action": "create_task",
+                "title": title,
+                "due_date": due_date,
+                "project": project,
+            }
+            if desc:
+                task_action["description"] = desc
+            return f"```action\n{json.dumps(task_action)}\n```"
+
+        # Case 4: Category C — Explicit request to complete work
+        is_explicit_work_cmd = any(
+            low.startswith(p)
+            for p in (
+                "help me prepare",
+                "help me write",
+                "help me with",
+                "can you write",
+                "can you draft",
+                "can you help me prepare",
+                "can you help prepare",
+                "write the",
+                "draft the",
+            )
+        )
+        if is_explicit_work_cmd:
+            if "bom" in low:
+                return (
+                    "I'd be glad to help you prepare the BOM for the WWTP. What components, materials, "
+                    "or specifications should we begin with? Let me know if you would also like me to track this as a task in Blockday."
+                )
+            return (
+                "I can certainly help you with that. How would you like to get started? "
+                "Let me know if you also want to track this in Blockday."
+            )
+
+        # Case 5: Category D — Explicit request to plan or discuss an idea
+        is_plan_discuss = any(
+            low.startswith(p)
+            for p in (
+                "let's plan",
+                "let's discuss",
+                "can we discuss",
+                "can we brainstorm",
+                "brainstorm",
+                "discuss the",
+            )
+        )
+        if is_plan_discuss:
+            return "Let's discuss and plan that out. What are your main goals and constraints for this?"
+
+        # Case 6: Category E — Casual statement / reflection
+        if low in (
+            "hello",
+            "hi",
+            "hey",
+            "hello!",
+            "hi!",
+            "good morning",
+            "good evening",
+            "thanks",
+            "thank you",
+            "today was a long day",
+        ):
+            return "Hello! I am Raphael, your Personal OS assistant. How can I help you today?"
+
+        # Case 7: Explicit command to create/add a project
         is_explicit_project_cmd = any(
             cmd in low
             for cmd in (
@@ -592,49 +749,60 @@ class MockHermesClient:
                 "create project",
             )
         ) or low.startswith("new project")
-
-        if is_ambiguous_phrase and not (is_explicit_task_cmd or is_explicit_project_cmd):
-            task_hint = self._extract_clean_title(stripped)
-            if "project" in low:
-                return (
-                    "It sounds like you have a new initiative in mind. "
-                    f"Would you like me to create a project for '{task_hint}'?"
-                )
-            return (
-                "It sounds like you need to work on something. "
-                f"Would you like me to create a task for '{task_hint}'? "
-                "If so, please let me know if you want to set a deadline or assign a project."
-            )
-
-        # Case 3: Explicit command to create/add a project
         if is_explicit_project_cmd:
             name, description = self._parse_project_command(stripped)
             if not name:
                 return "What name would you like to give to the project?"
-            project_action: dict[str, Any] = {
+            proj_act: dict[str, Any] = {
                 "action": "create_project",
                 "name": name,
             }
             if description:
-                project_action["description"] = description
-            return f"```action\n{json.dumps(project_action)}\n```"
+                proj_act["description"] = description
+            return f"```action\n{json.dumps(proj_act)}\n```"
 
-        # Case 4: Explicit command to create/add a task
-        if is_explicit_task_cmd:
-            title, due_date, project = self._parse_task_command(stripped)
-            if not title:
-                return "What title or description would you like to give to the task?"
-            action = {
-                "action": "create_task",
-                "title": title,
-                "due_date": due_date,
-                "project": project,
-            }
-            return f"```action\n{json.dumps(action)}\n```"
+        # Case 8: Category B — Ambiguous intent / Implicit task
+        ambiguous_indicators = (
+            "i have to",
+            "i need to",
+            "need to",
+            "we should",
+            "i should",
+            "i must",
+            "must",
+            "i ought to",
+            "i want to",
+            "want to",
+            "still need to be",
+            "has to be",
+        )
+        is_ambiguous_phrase = any(
+            low.startswith(p) or f" {p} " in f" {low} " for p in ambiguous_indicators
+        )
 
-        # Case 4: Greetings and casual conversation
-        if low in ("hello", "hi", "hey", "hello!", "hi!"):
-            return "Hello! I am Raphael, your Personal OS assistant. How can I help you today?"
+        if is_ambiguous_phrase:
+            if "bom" in low and "wwtp" in low:
+                return "Got it — should I add the WWTP BOM submission to Blockday, help you prepare it now, or both?"
+            elif "cordic" in low and "regression" in low:
+                return "Got it — should I add fixing the CORDIC regression tests to Blockday, work on it now, or both?"
+            elif "presentation" in low:
+                return "Got it — should I add the presentation to Blockday, help you work on it now, or both?"
+            elif "email" in low and "professor" in low:
+                return "Got it — should I add emailing the professor to Blockday, help you draft it now, or both?"
+            elif "timing failure" in low:
+                return "Got it — should I add investigating the timing failure to Blockday, work on it now, or both?"
+            elif "project" in low:
+                task_hint = self._extract_clean_title(stripped)
+                return (
+                    "It sounds like you have a new initiative in mind. "
+                    f"Would you like me to create a project for '{task_hint}'?"
+                )
+            else:
+                task_hint = self._extract_clean_title(stripped)
+                return (
+                    "It sounds like you have an upcoming task. "
+                    f"Would you like me to create a task in Blockday for '{task_hint}', help you work on it now, or both?"
+                )
 
         # Fallback default
         return f"Raphael (mock): Received your message: {prompt}"

@@ -1,15 +1,18 @@
 # Plan: Blockday as six distinct pages
 
 ## Goal
+
 Grow Blockday from one screen into six pages, each with its own Mondrian composition: Today, Flow, Projects, Focus, Stats, and Diary. This phase covers the look and light interactions only, using realistic sample data.
 
 ## Shared shell
+
 - Keep the top bar with the logo, six page tabs, search, date navigation, and theme toggle. No avatar, no extra menu items.
 - Every page is built from thick black-ruled rectangles laid out unevenly, using the existing colors, type, and motion.
 - Built for laptops first, but sections stretch and stack instead of breaking at one fixed width.
 - Reduced-motion settings turn off the sliding and rearranging.
 
 ## Pages
+
 1. **Today**
    - Task list with deadline marks: red = overdue, yellow = due today, blue = upcoming, warm off-white = no deadline.
    - Small labels such as `OVERDUE`, `DUE TODAY`, `2 DAYS LEFT`, `NO DEADLINE`.
@@ -38,15 +41,18 @@ Grow Blockday from one screen into six pages, each with its own Mondrian composi
    - No recording, transcription, or AI.
 
 ## Not in this phase
+
 - Seven-day retention, carrying unfinished tasks to the next day, real archiving, and real task history.
 - Real calendar or voice features.
 
 ## Order
+
 1. Shared shell, navigation, and all six page layouts.
 2. Interactions: switching pages, completing and archiving tasks, changing days, selecting projects, expanding diary entries, timer controls.
 3. Polish, then click through the main flows in the preview at laptop size.
 
 ## Technical details
+
 - Use one route per page (`/`, `/flow`, `/projects`, `/focus`, `/stats`, `/diary`), each with its own page title and description. The shared shell lives in the root layout.
 - Sample data lives in one module so the stats and the pages match. Task state stays in localStorage, per the project's local-only rule.
 - Shared building blocks: GridPanel, DeadlineStrip, TaskRow, SectionLabel, StatBlock, HeatMap, and a timer hook. The current large app component is broken into these pieces.

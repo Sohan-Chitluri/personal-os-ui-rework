@@ -10,15 +10,23 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as DevicesRouteImport } from './routes/devices'
 import { Route as DiaryRouteImport } from './routes/diary'
 import { Route as FlowRouteImport } from './routes/flow'
 import { Route as FocusRouteImport } from './routes/focus'
 import { Route as ProjectsRouteImport } from './routes/projects'
+import { Route as RaphaelRouteImport } from './routes/raphael'
 import { Route as StatsRouteImport } from './routes/stats'
+import { Route as AuthCallbackRouteImport } from './routes/auth.callback'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DevicesRoute = DevicesRouteImport.update({
+  id: '/devices',
+  path: '/devices',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DiaryRoute = DiaryRouteImport.update({
@@ -41,52 +49,102 @@ const ProjectsRoute = ProjectsRouteImport.update({
   path: '/projects',
   getParentRoute: () => rootRouteImport,
 } as any)
+const RaphaelRoute = RaphaelRouteImport.update({
+  id: '/raphael',
+  path: '/raphael',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const StatsRoute = StatsRouteImport.update({
   id: '/stats',
   path: '/stats',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthCallbackRoute = AuthCallbackRouteImport.update({
+  id: '/auth/callback',
+  path: '/auth/callback',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/devices': typeof DevicesRoute
   '/diary': typeof DiaryRoute
   '/flow': typeof FlowRoute
   '/focus': typeof FocusRoute
   '/projects': typeof ProjectsRoute
+  '/raphael': typeof RaphaelRoute
   '/stats': typeof StatsRoute
+  '/auth/callback': typeof AuthCallbackRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/devices': typeof DevicesRoute
   '/diary': typeof DiaryRoute
   '/flow': typeof FlowRoute
   '/focus': typeof FocusRoute
   '/projects': typeof ProjectsRoute
+  '/raphael': typeof RaphaelRoute
   '/stats': typeof StatsRoute
+  '/auth/callback': typeof AuthCallbackRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/devices': typeof DevicesRoute
   '/diary': typeof DiaryRoute
   '/flow': typeof FlowRoute
   '/focus': typeof FocusRoute
   '/projects': typeof ProjectsRoute
+  '/raphael': typeof RaphaelRoute
   '/stats': typeof StatsRoute
+  '/auth/callback': typeof AuthCallbackRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/diary' | '/flow' | '/focus' | '/projects' | '/stats'
+  fullPaths:
+    | '/'
+    | '/devices'
+    | '/diary'
+    | '/flow'
+    | '/focus'
+    | '/projects'
+    | '/raphael'
+    | '/stats'
+    | '/auth/callback'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/diary' | '/flow' | '/focus' | '/projects' | '/stats'
-  id: '__root__' | '/' | '/diary' | '/flow' | '/focus' | '/projects' | '/stats'
+  to:
+    | '/'
+    | '/devices'
+    | '/diary'
+    | '/flow'
+    | '/focus'
+    | '/projects'
+    | '/raphael'
+    | '/stats'
+    | '/auth/callback'
+  id:
+    | '__root__'
+    | '/'
+    | '/devices'
+    | '/diary'
+    | '/flow'
+    | '/focus'
+    | '/projects'
+    | '/raphael'
+    | '/stats'
+    | '/auth/callback'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  DevicesRoute: typeof DevicesRoute
   DiaryRoute: typeof DiaryRoute
   FlowRoute: typeof FlowRoute
   FocusRoute: typeof FocusRoute
   ProjectsRoute: typeof ProjectsRoute
+  RaphaelRoute: typeof RaphaelRoute
   StatsRoute: typeof StatsRoute
+  AuthCallbackRoute: typeof AuthCallbackRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -96,6 +154,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/devices': {
+      id: '/devices'
+      path: '/devices'
+      fullPath: '/devices'
+      preLoaderRoute: typeof DevicesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/diary': {
@@ -126,6 +191,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ProjectsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/raphael': {
+      id: '/raphael'
+      path: '/raphael'
+      fullPath: '/raphael'
+      preLoaderRoute: typeof RaphaelRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/stats': {
       id: '/stats'
       path: '/stats'
@@ -133,16 +205,26 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof StatsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/auth/callback': {
+      id: '/auth/callback'
+      path: '/auth/callback'
+      fullPath: '/auth/callback'
+      preLoaderRoute: typeof AuthCallbackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  DevicesRoute: DevicesRoute,
   DiaryRoute: DiaryRoute,
   FlowRoute: FlowRoute,
   FocusRoute: FocusRoute,
   ProjectsRoute: ProjectsRoute,
+  RaphaelRoute: RaphaelRoute,
   StatsRoute: StatsRoute,
+  AuthCallbackRoute: AuthCallbackRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

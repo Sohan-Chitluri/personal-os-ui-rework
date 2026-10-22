@@ -99,7 +99,12 @@ pending).
 ## Development
 
 ```bash
-python -m pytest tests/     # lightweight smoke tests (isolated temp vault)
+uv run pytest tests/test_extraction_resolver.py tests/test_extraction_validator.py tests/test_smoke.py
 ```
+
+For PostgreSQL-backed API/service/database work, see
+[`docs/POSTGRES_DEVELOPMENT.md`](docs/POSTGRES_DEVELOPMENT.md) for the pinned
+local database, disposable test database, migration, and integration-test
+commands.
 
 See `ROADMAP.md` for the roadmap and `CONSTITUTION.md` for principles.

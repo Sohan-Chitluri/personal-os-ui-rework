@@ -124,9 +124,11 @@ class OpenRouterProvider(LLMProvider):
         self,
         model: str = "google/gemma-4-31b-it:free",
         base_url: str = "https://openrouter.ai/api/v1",
+        api_key: str | None = None,
     ) -> None:
         self._model = model
         self._base_url = base_url.rstrip("/")
+        self._api_key = api_key
         self._client: httpx.AsyncClient | None = None
 
     # ------------------------------------------------------------------ public
@@ -136,7 +138,7 @@ class OpenRouterProvider(LLMProvider):
         text: str,
         context: dict | None = None,
     ) -> list[RawExtraction]:
-        api_key = os.environ.get("OPENROUTER_API_KEY", "")
+        api_key = self._api_key or os.environ.get("OPENROUTER_API_KEY", "")
         if not api_key:
             raise LLMProviderError("OPENROUTER_API_KEY is not set")
 

@@ -12,9 +12,10 @@ from __future__ import annotations
 import logging
 import re
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from personal_os.core.config import get_config
 from personal_os.core.vault import VaultManager, get_vault
@@ -22,12 +23,99 @@ from personal_os.core.vault import VaultManager, get_vault
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class NoteInfo:
+    path: Path
+    rel_path: str
+    stem: str
+    title: str = ""
+
+
+def _extract_title_from_content(content: str, fallback: str) -> str:
+    """Extract note title from markdown content."""
+    if not content:
+        return fallback
+    for line in content.splitlines():
+        line = line.strip()
+        if line.startswith("# "):
+            return line[2:].strip()
+        elif line.startswith("## "):
+            return line[3:].strip()
+    return fallback
+
+
+def _extract_title_from_file(path: Path, fallback: str) -> str:
+    """Extract note title from markdown file."""
+    try:
+        content = path.read_text(encoding="utf-8")
+        return _extract_title_from_content(content, fallback)
+    except Exception:
+        return fallback
+
+
+class LinkIndex:
+    """Index of vault notes and links for fast lookup."""
+
+    def __init__(self, root: Path):
+        self.root = root
+        self.notes: Dict[str, NoteInfo] = {}
+        self.rebuild()
+
+    def rebuild(self) -> None:
+        """Scan vault and populate note index."""
+        self.notes = {}
+        for md_file in self.root.rglob("*.md"):
+            try:
+                rel = str(md_file.relative_to(self.root))
+            except ValueError:
+                rel = str(md_file)
+            stem = md_file.stem
+            title = _extract_title_from_file(md_file, stem)
+            self.notes[rel] = NoteInfo(path=md_file, rel_path=rel, stem=stem, title=title)
+
+
 class LinkGraph:
     """Discovers and proposes connections between vault notes."""
 
-    def __init__(self, vault: Optional[VaultManager] = None):
+    def __init__(self, vault: Optional[VaultManager] = None, index: Optional[Any] = None):
         self.vault = vault or get_vault()
         self.root = self.vault.config.root
+        self.index = index if index is not None else LinkIndex(self.root)
+
+    def _iter_notes(self):
+        """Iterate over (rel_path, Path, NoteInfo or None) from index or filesystem."""
+        if hasattr(self, "index") and hasattr(self.index, "notes") and self.index.notes:
+            notes = self.index.notes
+            if isinstance(notes, dict):
+                for key, val in notes.items():
+                    if hasattr(val, "path"):
+                        yield str(key), val.path, val
+                    elif isinstance(val, Path):
+                        yield str(key), val, None
+                    else:
+                        p = self.root / str(key)
+                        yield str(key), p, None
+            else:
+                for item in notes:
+                    if hasattr(item, "path"):
+                        rel = getattr(item, "rel_path", None) or str(item.path.relative_to(self.root))
+                        yield str(rel), item.path, item
+                    elif isinstance(item, Path):
+                        try:
+                            rel = str(item.relative_to(self.root))
+                        except ValueError:
+                            rel = str(item)
+                        yield rel, item, None
+                    else:
+                        rel = str(item)
+                        yield rel, self.root / rel, None
+        else:
+            for md_file in self.root.rglob("*.md"):
+                try:
+                    rel = str(md_file.relative_to(self.root))
+                except ValueError:
+                    rel = str(md_file)
+                yield rel, md_file, None
 
     # ---- entity extraction ----
 
@@ -68,7 +156,7 @@ class LinkGraph:
         results: List[Dict[str, object]] = []
         query_lower = query.lower()
 
-        for md_file in self.root.rglob("*.md"):
+        for rel_path, md_file, _ in self._iter_notes():
             try:
                 content = md_file.read_text(encoding="utf-8")
             except Exception:
@@ -91,11 +179,6 @@ class LinkGraph:
             else:
                 context = content[:150]
 
-            try:
-                rel_path = str(md_file.relative_to(self.root))
-            except ValueError:
-                rel_path = str(md_file)
-
             results.append({"file": rel_path, "score": score, "context": context})
 
         results.sort(key=lambda x: x["score"], reverse=True)  # type: ignore[return-value]
@@ -104,31 +187,43 @@ class LinkGraph:
     def find_orphans(self, limit: int = 20) -> List[Dict[str, str]]:
         """Find notes with no incoming or outgoing wiki-links.
 
-        Considers every markdown note in the vault, so notes that have no
-        links at all are correctly reported as orphans.
+        Considers every markdown note in the vault, matching incoming links against
+        note title, filename stem, and full rel_path consistently with the link index,
+        so notes linked via [[Title]] or [[stem]] are not classified as orphans.
         """
         outgoing: Dict[str, set] = defaultdict(set)
         incoming: Dict[str, set] = defaultdict(set)
+        notes_metadata: Dict[str, Tuple[str, str]] = {}  # rel_path -> (stem, title)
 
-        for md_file in self.root.rglob("*.md"):
+        for rel_path, md_file, note_info in self._iter_notes():
             try:
                 content = md_file.read_text(encoding="utf-8")
-                rel_path = str(md_file.relative_to(self.root))
             except Exception:
                 continue
-            for link in re.findall(r"\[\[([^\]]+)\]\]", content):
-                outgoing[rel_path].add(link)
-                incoming[link].add(rel_path)
 
-        # Evaluate every note, not just those already in the link graph.
+            stem = Path(rel_path).stem
+            title = getattr(note_info, "title", None) or _extract_title_from_content(content, stem)
+            notes_metadata[rel_path] = (stem, title)
+
+            for raw_link in re.findall(r"\[\[([^\]]+)\]\]", content):
+                target = raw_link.split("|")[0].split("#")[0].strip()
+                outgoing[rel_path].add(target)
+                incoming[target].add(rel_path)
+                incoming[target.lower()].add(rel_path)
+
         orphans: List[Dict[str, str]] = []
-        for md_file in self.root.rglob("*.md"):
-            try:
-                rel_path = str(md_file.relative_to(self.root))
-            except ValueError:
-                rel_path = str(md_file)
-            if not outgoing.get(rel_path) and not incoming.get(rel_path):
-                orphans.append({"file": rel_path, "title": Path(rel_path).stem})
+        for rel_path, (stem, title) in notes_metadata.items():
+            has_outgoing = bool(outgoing.get(rel_path))
+            has_incoming = (
+                bool(incoming.get(rel_path))
+                or bool(incoming.get(rel_path.lower()))
+                or bool(incoming.get(stem))
+                or bool(incoming.get(stem.lower()))
+                or (bool(title) and (bool(incoming.get(title)) or bool(incoming.get(title.lower()))))
+            )
+            if not has_outgoing and not has_incoming:
+                orphans.append({"file": rel_path, "title": stem})
+
         return orphans[:limit]
 
     def suggest_links(self, query: str, limit: int = 10) -> List[Dict[str, object]]:
@@ -138,32 +233,27 @@ class LinkGraph:
             return [{"note": f"No notes found matching '{query}'", "shared": [], "score": 0}]
 
         target_file = str(related[0]["file"])
-        target_content = ""
-        for md_file in self.root.rglob("*.md"):
-            try:
-                if str(md_file.relative_to(self.root)) == target_file:
-                    target_content = md_file.read_text(encoding="utf-8")
-                    break
-            except Exception:
-                continue
+        target_path = Path(target_file) if Path(target_file).is_absolute() else (self.root / target_file)
+        try:
+            target_content = target_path.read_text(encoding="utf-8")
+        except Exception:
+            target_content = ""
+
         if not target_content:
             return [{"note": "Could not read target note", "shared": [], "score": 0}]
 
         target_entities = self.extract_entities(target_content)
-        entity_names = [e[1] for e in target_entities]
 
         suggestions: Dict[str, Dict[str, object]] = defaultdict(
             lambda: {"shared": [], "score": 0}
         )
-        for md_file in self.root.rglob("*.md"):
-            try:
-                rel_path = str(md_file.relative_to(self.root))
-            except ValueError:
-                rel_path = str(md_file)
+
+        # Read known candidate files directly from self.index.notes rather than rescanning the full vault
+        for rel_path, candidate_path, note_info in self._iter_notes():
             if rel_path == target_file:
                 continue
             try:
-                content = md_file.read_text(encoding="utf-8")
+                content = getattr(note_info, "content", None) or candidate_path.read_text(encoding="utf-8")
             except Exception:
                 continue
             content_lower = content.lower()
@@ -217,11 +307,13 @@ class LinkGraph:
         hub_dir = self.root / "05-Resources" / "Hubs"
         hub_dir.mkdir(parents=True, exist_ok=True)
         hub_file = hub_dir / f"{topic.lower().replace(' ', '-')}-hub.md"
-        hub_file.write_text(hub_content, encoding="utf-8")
+        self.vault.write_file(hub_file, hub_content)
         try:
             rel = str(hub_file.relative_to(self.root))
         except ValueError:
             rel = str(hub_file)
+        if hasattr(self.index, "rebuild"):
+            self.index.rebuild()
         return rel
 
 
@@ -231,8 +323,9 @@ _default_graph: Optional[LinkGraph] = None
 
 def get_link_graph() -> LinkGraph:
     global _default_graph
-    if _default_graph is None:
-        _default_graph = LinkGraph(get_vault())
+    current_vault = get_vault()
+    if _default_graph is None or _default_graph.vault is not current_vault:
+        _default_graph = LinkGraph(current_vault)
     return _default_graph
 
 

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { RaphaelChatPage } from "@/routes/raphael";
 import type { RaphaelApiClient } from "@/lib/raphael-api";
@@ -68,6 +68,19 @@ describe("RaphaelChatPage", () => {
         created_at: "2026-10-19T10:02:02Z",
       },
     } as SendMessageResponse),
+    getDiaryMemories: vi.fn().mockResolvedValue([
+      {
+        capture_id: "cap-1",
+        title: "Architecture Planning",
+        summary: "# Session Summary: Architecture Planning\n\nDecided to use PostgreSQL.",
+        topics: ["Architecture"],
+        decisions: ["Use PostgreSQL"],
+        tasks: [],
+        next_steps: ["Run migrations"],
+        created_at: "2026-10-19T10:00:00Z",
+      },
+    ]),
+    deleteDiaryMemory: vi.fn().mockResolvedValue(undefined),
   };
 
   it("renders conversation history with distinct user and assistant messages", async () => {
@@ -252,7 +265,7 @@ describe("RaphaelChatPage", () => {
     // 3. Structured project creation result card IS rendered
     const projectCard = screen.getByTestId("project-creation-card");
     expect(projectCard).toBeInTheDocument();
-    expect(screen.getByText("CORDIC")).toBeInTheDocument();
+    expect(within(projectCard).getByText("CORDIC")).toBeInTheDocument();
     expect(screen.getByText("Project Created")).toBeInTheDocument();
     expect(screen.getByText("Open Projects")).toBeInTheDocument();
   });
@@ -325,4 +338,193 @@ describe("RaphaelChatPage", () => {
     expect(messagesContainer).toHaveClass("overflow-y-auto");
     expect(messagesContainer).toHaveClass("min-h-0");
   });
+
+  it("renders assistant messages formatted with rich Markdown", async () => {
+    const mdConv: RaphaelConversationDetail = {
+      ...initialConv,
+      messages: [
+        {
+          id: "m-user-md",
+          conversation_id: "conv-100",
+          role: "user",
+          content: "Explain the architecture plan",
+          created_at: "2026-10-19T10:00:00Z",
+        },
+        {
+          id: "m-asst-md",
+          conversation_id: "conv-100",
+          role: "assistant",
+          content:
+            "### Compute & Infrastructure (Week 1)\nWe chose **Postgres** for persistence.\n- Step 1: `alembic upgrade head`\n- Step 2: verify connections",
+          created_at: "2026-10-19T10:00:02Z",
+        },
+      ],
+    };
+
+    const mdApi: Partial<RaphaelApiClient> = {
+      ...mockApi,
+      getConversation: vi.fn().mockResolvedValue(mdConv),
+    };
+
+    const { container } = render(<RaphaelChatPage api={mdApi as RaphaelApiClient} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("Explain the architecture plan")).toBeInTheDocument();
+    });
+
+    // Heading level 3 rendered
+    const heading = screen.getByRole("heading", { level: 3 });
+    expect(heading).toHaveTextContent("Compute & Infrastructure (Week 1)");
+
+    // Bold text rendered in strong tag
+    const strongEl = screen.getByText("Postgres");
+    expect(strongEl.tagName).toBe("STRONG");
+
+    // Inline code rendered in code tag
+    const codeEl = screen.getByText("alembic upgrade head");
+    expect(codeEl.tagName).toBe("CODE");
+
+    // List items rendered
+    const listItems = container.querySelectorAll("li");
+    expect(listItems.length).toBe(2);
+  });
+
+  it("supports deleting a past session summary with confirmation and updates the drawer", async () => {
+    render(<RaphaelChatPage api={mockApi as RaphaelApiClient} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("What tasks are open?")).toBeInTheDocument();
+    });
+
+    // Open Past Summaries drawer
+    const memoriesButton = screen.getByRole("button", { name: /Past Summaries/i });
+    fireEvent.click(memoriesButton);
+
+    await waitFor(() => {
+      expect(screen.getByText("Architecture Planning")).toBeInTheDocument();
+    });
+
+    // Click delete trash button
+    const deleteBtn = screen.getByTestId("delete-summary-cap-1");
+    fireEvent.click(deleteBtn);
+
+    // Confirmation dialog is shown
+    await waitFor(() => {
+      expect(screen.getByRole("dialog")).toBeInTheDocument();
+      expect(screen.getByText("Delete Past Summary?")).toBeInTheDocument();
+      expect(screen.getByText(/Your original conversation history and messages will not be deleted/i)).toBeInTheDocument();
+    });
+
+    // Cancel first
+    const cancelBtn = screen.getByRole("button", { name: /Cancel/i });
+    fireEvent.click(cancelBtn);
+
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(screen.getByText("Architecture Planning")).toBeInTheDocument();
+
+    // Click delete again and confirm
+    fireEvent.click(screen.getByTestId("delete-summary-cap-1"));
+    const confirmBtn = screen.getByTestId("confirm-delete-summary-button");
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => {
+      expect(mockApi.deleteDiaryMemory).toHaveBeenCalledWith("cap-1");
+      expect(screen.queryByRole("dialog")).toBeNull();
+      expect(screen.queryByText("Architecture Planning")).toBeNull();
+    });
+  });
+
+  it("handles deleting a summary that is currently open/expanded", async () => {
+    render(<RaphaelChatPage api={mockApi as RaphaelApiClient} />);
+
+    await waitFor(() => {
+      expect(screen.getByText("What tasks are open?")).toBeInTheDocument();
+    });
+
+    // Open Past Summaries drawer
+    const memoriesButton = screen.getByRole("button", { name: /Past Summaries/i });
+    fireEvent.click(memoriesButton);
+
+    await waitFor(() => {
+      expect(screen.getByText("Architecture Planning")).toBeInTheDocument();
+    });
+
+    // Expand the summary
+    const summaryTitleBtn = screen.getByTestId("toggle-summary-cap-1");
+    fireEvent.click(summaryTitleBtn);
+
+    // Markdown summary preview is rendered
+    await waitFor(() => {
+      expect(screen.getByText(/Decided to use PostgreSQL/i)).toBeInTheDocument();
+    });
+
+    // Delete while open
+    fireEvent.click(screen.getByTestId("delete-summary-cap-1"));
+    fireEvent.click(screen.getByTestId("confirm-delete-summary-button"));
+
+    await waitFor(() => {
+      expect(mockApi.deleteDiaryMemory).toHaveBeenCalledWith("cap-1");
+      expect(screen.queryByText("Architecture Planning")).toBeNull();
+      expect(screen.queryByText(/Decided to use PostgreSQL/i)).toBeNull();
+    });
+  });
+
+  it("renders structured task creation card with title, project, due date, description, and open link", async () => {
+    const rawTaskResponse =
+      "I have created the task **Submit WWTP BOM** (ID: `task-999`).\n" +
+      "- Due: 2026-10-23 18:00 UTC\n" +
+      "- Project: WWTP\n" +
+      "- Description: Soft deadline. Submit to Somya Sir.";
+
+    const taskCreationApi: Partial<RaphaelApiClient> = {
+      ...mockApi,
+      getConversation: vi.fn().mockResolvedValue({
+        id: "conv-wwtp",
+        title: "WWTP Task Discussion",
+        status: "active",
+        created_at: "2026-10-19T10:00:00Z",
+        updated_at: "2026-10-19T10:00:00Z",
+        messages: [
+          {
+            id: "msg-1",
+            conversation_id: "conv-wwtp",
+            role: "user",
+            content: "Add WWTP BOM to Blockday",
+            created_at: "2026-10-19T10:00:00Z",
+          },
+          {
+            id: "msg-2",
+            conversation_id: "conv-wwtp",
+            role: "assistant",
+            content: rawTaskResponse,
+            created_at: "2026-10-19T10:00:05Z",
+          },
+        ],
+      }),
+      listConversations: vi.fn().mockResolvedValue([
+        {
+          id: "conv-wwtp",
+          title: "WWTP Task Discussion",
+          status: "active",
+          created_at: "2026-10-19T10:00:00Z",
+          updated_at: "2026-10-19T10:00:00Z",
+        },
+      ]),
+    };
+
+    render(<RaphaelChatPage api={taskCreationApi as RaphaelApiClient} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("task-creation-card")).toBeInTheDocument();
+    });
+
+    const taskCard = screen.getByTestId("task-creation-card");
+    expect(within(taskCard).getByText("Submit WWTP BOM")).toBeInTheDocument();
+    expect(within(taskCard).getByText("Soft deadline. Submit to Somya Sir.")).toBeInTheDocument();
+    expect(within(taskCard).getByText("2026-10-23 18:00 UTC")).toBeInTheDocument();
+    expect(within(taskCard).getByText("WWTP")).toBeInTheDocument();
+    expect(within(taskCard).getByText("Open Tasks")).toBeInTheDocument();
+    expect(within(taskCard).getByText("Task Created")).toBeInTheDocument();
+  });
 });
+

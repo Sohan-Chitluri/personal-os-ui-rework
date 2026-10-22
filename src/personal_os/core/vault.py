@@ -177,6 +177,8 @@ class VaultManager:
         self._batch_mode = True
         self._batch_message = message
         self._batch_files = []  # Reset batch file tracking
+        self._batch_created: List[Path] = []
+        self._batch_backups: Dict[Path, str] = {}
     
     def commit_batch(self) -> None:
         """Commit all staged changes from the current batch."""
@@ -186,6 +188,9 @@ class VaultManager:
             self._repo.index.commit(self._batch_message or "Batch update")
         self._batch_mode = False
         self._batch_message = None
+        self._batch_files = []
+        self._batch_created = []
+        self._batch_backups = {}
     
     def rollback_batch(self) -> None:
         """Discard all staged changes from the current batch."""
@@ -199,17 +204,29 @@ class VaultManager:
             except git.GitCommandError:
                 # No commits yet (empty repo) - just unstage everything
                 self._repo.git.reset()
-        # Also remove any files that were written during this batch
-        # by using the tracked file list
-        for file_path in self._batch_files:
+        # Remove only files that were newly created during this batch
+        for file_path in getattr(self, "_batch_created", []):
             if file_path.exists():
                 file_path.unlink()
+        # Restore pre-existing content for modified files
+        for file_path, original_content in getattr(self, "_batch_backups", {}).items():
+            file_path.write_text(original_content, encoding='utf-8')
         self._batch_files = []
+        self._batch_created = []
+        self._batch_backups = {}
         self._batch_mode = False
         self._batch_message = None
     
     def write_file(self, path: Path, content: str, commit: bool = True, message: str = None):
         """Write file atomically, optionally commit to git."""
+        if self._batch_mode:
+            if path.exists():
+                if path not in self._batch_backups:
+                    self._batch_backups[path] = path.read_text(encoding='utf-8')
+            else:
+                if path not in self._batch_created:
+                    self._batch_created.append(path)
+
         with self.atomic_write(path) as tmp:
             tmp.write_text(content)
         
@@ -236,20 +253,13 @@ class VaultManager:
         return ""
     
     def delete_file(self, path: Path, commit: bool = True):
-            """Delete file and optionally commit."""
-            if path.exists():
-                path.unlink()
-                if commit and self._repo:
-                    if self._batch_mode:
-                        rel_path = path.relative_to(self.config.root)
-                        self._repo.index.remove([str(rel_path)])
-                    else:
-                        rel_path = path.relative_to(self.config.root)
-                        self._repo.index.remove([str(rel_path)])
-                        self._repo.index.commit(f"Delete {rel_path}")
-                else:
-                    rel_path = path.relative_to(self.config.root)
-                    self._repo.index.remove([str(rel_path)])
+        """Delete file and optionally commit."""
+        if path.exists():
+            path.unlink()
+            if commit and self._repo:
+                rel_path = path.relative_to(self.config.root)
+                self._repo.index.remove([str(rel_path)])
+                if not self._batch_mode:
                     self._repo.index.commit(f"Delete {rel_path}")
     
     # ========== Journal Operations ==========

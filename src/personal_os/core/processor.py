@@ -17,6 +17,7 @@ the semantic block is linked to the exact raw journal entry by the same ULID.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import logging
 import os
 from dataclasses import dataclass, field
@@ -337,6 +338,92 @@ class KnowledgeApplier:
         self.vault.write_file(target_path, content, message=f"Decision: {action.decision[:50]}")
         return [f"✅ Decision logged in {project}/{target_path.name}"]
 
+    @staticmethod
+    def _find_task_to_complete(lines: List[str], desc: str) -> Optional[int]:
+        """Find index of task line to complete, avoiding ambiguous or false matches."""
+        import re
+        completion_patterns = [
+            r'(?:the\s+active\s+task\s+)?(.+?)\s+is\s+(?:done|completed|finished)$',
+            r'\b(.+?)\s+done$',
+            r'(?:i\s+)?(?:finished|completed)\s+(.+)',
+        ]
+        core_desc = desc.strip()
+        for pattern in completion_patterns:
+            m = re.search(pattern, core_desc, re.IGNORECASE)
+            if m:
+                core_desc = m.group(1).strip()
+                break
+
+        stop_words = {
+            "a", "an", "the", "and", "or", "but", "if", "then", "else", "when",
+            "at", "by", "for", "with", "about", "against", "between", "into",
+            "through", "during", "before", "after", "above", "below", "to", "from",
+            "up", "down", "in", "out", "on", "off", "over", "under", "again",
+            "further", "then", "once", "here", "there", "all", "any", "both",
+            "each", "few", "more", "most", "other", "some", "such", "no", "nor",
+            "not", "only", "own", "same", "so", "than", "too", "very", "can",
+            "will", "just", "don", "should", "now", "is", "was", "are", "were",
+            "be", "been", "being", "have", "has", "had", "do", "does", "did",
+            "done", "finished", "completed", "task", "active", "it", "my", "our"
+        }
+
+        # Tokenize target description
+        target_tokens = [w for w in re.findall(r'\b\w+\b', core_desc.lower()) if w not in stop_words and len(w) > 1]
+
+        candidates: List[tuple[int, float]] = []
+
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if not stripped.startswith("- [ ]"):
+                continue
+            task_text = stripped[5:].strip()
+            task_tokens = [w for w in re.findall(r'\b\w+\b', task_text.lower()) if w not in stop_words]
+            task_tokens_set = set(task_tokens)
+
+            # Exact match (ignoring whitespace/case/punct)
+            raw_task_clean = " ".join(re.findall(r'\b\w+\b', task_text.lower()))
+            raw_target_clean = " ".join(re.findall(r'\b\w+\b', core_desc.lower()))
+            if raw_target_clean and raw_target_clean == raw_task_clean:
+                candidates.append((i, 100.0))
+                continue
+
+            # Substring phrase match (minimum 4 chars and meaningful)
+            if len(raw_target_clean) >= 4 and raw_target_clean in raw_task_clean:
+                candidates.append((i, 90.0))
+                continue
+
+            if not target_tokens:
+                continue
+
+            matched = [t for t in target_tokens if t in task_tokens_set]
+            match_count = len(matched)
+            if match_count == 0:
+                continue
+
+            # If only 1 target token, require it to have len >= 4 to avoid short-word accidents
+            if len(target_tokens) == 1:
+                if len(target_tokens[0]) >= 4:
+                    candidates.append((i, 60.0))
+                continue
+
+            # Multiple target tokens: require at least 60% overlap
+            ratio = match_count / len(target_tokens)
+            if ratio >= 0.6:
+                candidates.append((i, 50.0 + 40.0 * ratio))
+
+        if not candidates:
+            return None
+
+        # Sort candidates by score descending
+        candidates.sort(key=lambda x: x[1], reverse=True)
+        top_idx, top_score = candidates[0]
+
+        # Check for ambiguity: if second candidate has same score or is within 5 points
+        if len(candidates) > 1 and candidates[1][1] >= (top_score - 5.0):
+            return None
+
+        return top_idx
+
     def _action_mark_complete(self, action: Any) -> List[str]:
         project = action.project
         if not project:
@@ -346,29 +433,12 @@ class KnowledgeApplier:
             return [f"⚠️ No Tasks.md found in {project}"]
 
         content = self.vault.read_file(tasks_file)
-        desc = action.description.lower()
-        
-        # Extract core task description from completion text
-        # Handles: "X is done", "the active task X is done", "I finished X", "X done", "completed X"
-        import re
-        completion_patterns = [
-            r'(?:the\s+active\s+task\s+)?(.+?)\s+is\s+(?:done|completed|finished)$',
-            r'\b(.+?)\s+done$',
-            r'(?:i\s+)?(?:finished|completed)\s+(.+)',
-        ]
-        core_desc = desc
-        for pattern in completion_patterns:
-            m = re.search(pattern, desc, re.IGNORECASE)
-            if m:
-                core_desc = m.group(1).strip()
-                break
-        
         lines = content.split('\n')
-        for i, line in enumerate(lines):
-            if line.strip().startswith("- [ ]") and any(w in line.lower() for w in core_desc.split()[:5]):
-                lines[i] = line.replace("- [ ]", "- [x]")
-                self.vault.write_file(tasks_file, '\n'.join(lines), message=f"Complete: {action.description[:50]}")
-                return [f"✅ Marked complete in {project}/Tasks.md"]
+        idx = self._find_task_to_complete(lines, action.description)
+        if idx is not None:
+            lines[idx] = lines[idx].replace("- [ ]", "- [x]", 1)
+            self.vault.write_file(tasks_file, '\n'.join(lines), message=f"Complete: {action.description[:50]}")
+            return [f"✅ Marked complete in {project}/Tasks.md"]
         return [f"ℹ️ No matching task found to complete in {project}"]
 
     def _action_append_learning(self, action: Any) -> List[str]:
@@ -479,13 +549,12 @@ class KnowledgeApplier:
         if not tasks_file.exists():
             return [f"⚠️ No Tasks.md found in {project}"]
         content = self.vault.read_file(tasks_file)
-        desc = ext['description'].lower()
         lines = content.split('\n')
-        for i, line in enumerate(lines):
-            if line.strip().startswith("- [ ]") and any(w in line.lower() for w in desc.split()[:3]):
-                lines[i] = line.replace("- [ ]", "- [x]")
-                self.vault.write_file(tasks_file, '\n'.join(lines), message=f"Complete: {ext['description'][:50]}")
-                return [f"✅ Marked task complete in {project}/Tasks.md"]
+        idx = self._find_task_to_complete(lines, ext.get('description', ''))
+        if idx is not None:
+            lines[idx] = lines[idx].replace("- [ ]", "- [x]", 1)
+            self.vault.write_file(tasks_file, '\n'.join(lines), message=f"Complete: {ext['description'][:50]}")
+            return [f"✅ Marked task complete in {project}/Tasks.md"]
         return [f"ℹ️ No matching task found to complete in {project}"]
 
     def _apply_learning(self, ext: Dict) -> List[str]:
@@ -640,7 +709,9 @@ class BackgroundProcessor:
                 self._queue.task_done()
                 if self._on_processed:
                     try:
-                        await self._on_processed(result, text, source)
+                        res = self._on_processed(result, text, source)
+                        if inspect.isawaitable(res):
+                            await res
                     except Exception as e:
                         logger.error("on_processed callback error: %s", e)
             except asyncio.TimeoutError:

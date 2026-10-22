@@ -159,7 +159,7 @@ export function SyncStatusPanel() {
 
   if (!enabled) {
     return (
-      <div className="border-b border-grid px-5 py-2 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+      <div className="shrink-0 border-b border-grid px-5 py-2 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
         {blockday?.isDemoMode
           ? "Local demo · synchronization paused"
           : "Synchronization requires sign-in"}
@@ -170,7 +170,7 @@ export function SyncStatusPanel() {
   return (
     <section
       aria-label="Synchronization status"
-      className="border-b border-grid bg-panel px-5 py-2 text-xs"
+      className="shrink-0 border-b border-grid bg-panel px-5 py-2 text-xs"
     >
       <div className="flex flex-wrap items-center gap-3">
         <span className="font-black uppercase tracking-wide" role="status">

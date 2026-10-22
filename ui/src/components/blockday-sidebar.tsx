@@ -1,68 +1,57 @@
 import { Link, useRouterState } from "@tanstack/react-router";
-import { projects } from "@/lib/blockday-data";
 import { useBlockday } from "@/lib/blockday-store";
 import { toneBg } from "@/components/blockday-ui";
 
 // Per-page slab arrangement: [yellow grow, blue grow, red grow, tree grow]. The
 // sidebar blocks animate between these so each page "recomposes" the wall.
 const arrangements: Record<string, [number, number, number, number]> = {
-  "/": [2, 2, 0, 6],
-  "/flow": [3, 3, 0, 4],
-  "/projects": [1, 0, 2, 7],
-  "/focus": [4, 1, 3, 2],
-  "/stats": [1, 4, 0, 3],
-  "/diary": [0, 2, 3, 4],
+  "/": [1, 1, 0, 6],
+  "/flow": [2, 1, 0, 6],
+  "/projects": [1, 0, 1, 7],
+  "/focus": [2, 1, 1, 6],
+  "/stats": [1, 2, 0, 6],
+  "/diary": [0, 1, 2, 6],
+  "/devices": [1, 1, 1, 6],
+  "/raphael": [1, 1, 1, 6],
 };
 
 export function AppSidebar() {
   const path = useRouterState({ select: (s) => s.location.pathname });
-  const { tasks, selectedProjectId, setSelectedProjectId } = useBlockday();
+  const { tasks, projects, projectsLoading, selectedProjectId, setSelectedProjectId } =
+    useBlockday();
   const [y, b, r, tree] = arrangements[path] ?? arrangements["/"]!;
-  const roots = projects.filter((p) => !p.parent);
   const count = (id: string) => tasks.filter((t) => !t.done && t.projectId === id).length;
 
   return (
     <aside className="sidebar-wall">
-      <div className="sidebar-cell bg-canvas p-4" style={{ flexGrow: tree }}>
-        <div className="mb-3 flex items-center justify-between">
+      <div
+        className="sidebar-cell bg-canvas p-4 flex flex-col min-h-[180px]"
+        style={{ flexGrow: tree }}
+      >
+        <div className="mb-3 flex items-center justify-between shrink-0">
           <span className="section-label">Projects</span>
-          <Link to="/projects" className="ghost-chip">+ New</Link>
+          <Link to="/projects" className="ghost-chip">
+            + New
+          </Link>
         </div>
-        <ul className="space-y-0.5">
-          {roots.map((root) => {
-            const isSelected = selectedProjectId === root.id && path === "/projects";
-            return (
-              <li key={root.id}>
-                <Link
-                  to="/projects"
-                  onClick={() => setSelectedProjectId(root.id)}
-                  className={`tree-row ${isSelected ? "bg-muted font-bold" : ""}`}
-                >
-                  <span className={`project-swatch ${toneBg[root.tone]}`} />
-                  <span className="flex-1">{root.name}</span>
-                  <span className="tree-count">{count(root.id) || ""}</span>
-                </Link>
-                <ul>
-                  {projects.filter((p) => p.parent === root.id).map((p) => {
-                    const isChildSelected = selectedProjectId === p.id && path === "/projects";
-                    return (
-                      <li key={p.id}>
-                        <Link
-                          to="/projects"
-                          onClick={() => setSelectedProjectId(p.id)}
-                          className={`tree-row pl-7 ${isChildSelected ? "bg-muted font-bold" : ""}`}
-                        >
-                          <span className={`project-swatch ${toneBg[p.tone]}`} />
-                          <span className="flex-1 truncate">{p.name}</span>
-                          <span className="tree-count">{count(p.id) || ""}</span>
-                        </Link>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </li>
-            );
-          })}
+        {projectsLoading && <p className="text-xs text-muted-foreground">Loading…</p>}
+        {!projectsLoading && !projects.length && (
+          <p className="text-xs text-muted-foreground">No projects</p>
+        )}
+        <ul className="space-y-0.5 flex-1 min-h-0 overflow-y-auto">
+          {projects.map((project) => (
+            <li key={project.id}>
+              <Link
+                to="/projects"
+                onClick={() => setSelectedProjectId(project.id)}
+                className={`tree-row ${selectedProjectId === project.id && path === "/projects" ? "bg-muted font-bold" : ""}`}
+              >
+                <span className={`project-swatch ${toneBg.neutral}`} />
+                <span className="flex-1 truncate">{project.name}</span>
+                <span className="tree-count">{count(project.id) || ""}</span>
+              </Link>
+            </li>
+          ))}
         </ul>
       </div>
       <div className="sidebar-cell bg-block-yellow" style={{ flexGrow: y }} />

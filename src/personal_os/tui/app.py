@@ -22,7 +22,10 @@ search implementation, split panes, themes, animations, conversation redesign.
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Dict, List, Any, Optional
+
+logger = logging.getLogger(__name__)
 
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal, Vertical

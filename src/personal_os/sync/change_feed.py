@@ -25,7 +25,16 @@ _FIELDS = {
     Project: (EntityType.PROJECT, ("name", "description", "status")),
     Task: (
         EntityType.TASK,
-        ("title", "description", "status", "priority", "due_date", "project_id", "capture_id"),
+        (
+            "title",
+            "description",
+            "status",
+            "priority",
+            "due_date",
+            "hard_deadline",
+            "project_id",
+            "capture_id",
+        ),
     ),
 }
 

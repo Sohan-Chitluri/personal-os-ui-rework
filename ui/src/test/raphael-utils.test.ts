@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanMessageContent, parseProjectResult } from "@/lib/raphael-utils";
+import { cleanMessageContent, parseProjectResult, parseTaskResult } from "@/lib/raphael-utils";
 
 describe("raphael-utils", () => {
   describe("cleanMessageContent", () => {
@@ -85,6 +85,62 @@ describe("raphael-utils", () => {
     it("returns null when no project creation confirmed", () => {
       const content = "You have 5 projects in your workspace.";
       expect(parseProjectResult(content)).toBeNull();
+    });
+  });
+
+  describe("parseTaskResult", () => {
+    it("parses task creation confirmation with title and ID", () => {
+      const content =
+        "I have created the task **Submit WWTP BOM** (ID: `task-123`).\n" +
+        "- Due: 2026-10-23 18:00 UTC\n" +
+        "- Project: WWTP\n" +
+        "- Description: Soft deadline. Submit BOM to Somya Sir.";
+      const parsed = parseTaskResult(content);
+      expect(parsed).toEqual({
+        id: "task-123",
+        title: "Submit WWTP BOM",
+        dueDate: "2026-10-23 18:00 UTC",
+        hardDeadline: undefined,
+        project: "WWTP",
+        description: "Soft deadline. Submit BOM to Somya Sir.",
+        note: undefined,
+      });
+    });
+
+    it("parses task creation without ID or description", () => {
+      const content =
+        "I have created the task **Implement 16-stage CORDIC pipeline**.\n- Due: None\n- Project: CORDIC";
+      const parsed = parseTaskResult(content);
+      expect(parsed).toEqual({
+        id: undefined,
+        title: "Implement 16-stage CORDIC pipeline",
+        dueDate: undefined,
+        hardDeadline: undefined,
+        project: "CORDIC",
+        description: undefined,
+        note: undefined,
+      });
+    });
+
+    it("parses hard deadline and project note when present", () => {
+      const content =
+        "I have created the task **Final Thesis Submission** (ID: `task-456`).\n" +
+        "- Due: 2026-11-01 12:00 UTC\n" +
+        "- Hard deadline: 2026-11-01 23:59 UTC\n" +
+        "- Project: Thesis\n" +
+        "- Note: Project 'Thesis' was matched unambiguously.";
+      const parsed = parseTaskResult(content);
+      expect(parsed?.id).toBe("task-456");
+      expect(parsed?.title).toBe("Final Thesis Submission");
+      expect(parsed?.dueDate).toBe("2026-11-01 12:00 UTC");
+      expect(parsed?.hardDeadline).toBe("2026-11-01 23:59 UTC");
+      expect(parsed?.project).toBe("Thesis");
+      expect(parsed?.note).toBe("Project 'Thesis' was matched unambiguously.");
+    });
+
+    it("returns null when no task creation confirmed", () => {
+      const content = "Should I add the WWTP BOM submission to Blockday, help you prepare it now, or both?";
+      expect(parseTaskResult(content)).toBeNull();
     });
   });
 });

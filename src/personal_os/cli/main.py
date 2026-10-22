@@ -1,6 +1,7 @@
 """Personal OS - CLI entry point with TUI support."""
 from __future__ import annotations
 import asyncio
+import os
 import sys
 from pathlib import Path
 from typing import Optional
@@ -221,7 +222,7 @@ def tasks(
         for i, line in enumerate(lines):
             if line.strip().startswith("- [") and "]" in line:
                 task_text = line.strip()[5:]  # Remove "- [x] " or "- [ ] "
-                done = line.strip().startswith("- [x]")
+                done = line.strip().startswith(("- [x]", "- [X]"))
                 all_tasks.append({
                     'project': f.parent.name,
                     'text': task_text,

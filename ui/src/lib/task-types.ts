@@ -5,6 +5,7 @@
 
 export type Mood = "Deep" | "Clear" | "Easy" | "Creative";
 export type Tone = "red" | "blue" | "yellow" | "neutral";
+export type EntitySyncStatus = "pending" | "syncing" | "synced" | "conflict" | "failed";
 
 /**
  * Backend Task representation from GET/POST/PATCH /api/v1/tasks
@@ -19,6 +20,8 @@ export interface BackendTask {
   status: "open" | "done" | string;
   priority: number | null;
   due_date: string | null;
+  soft_deadline?: string | null;
+  hard_deadline?: string | null;
   revision: number;
   created_at: string;
   updated_at: string;
@@ -35,6 +38,8 @@ export interface TaskCreatePayload {
   description?: string | null | undefined;
   priority?: number | null | undefined;
   due_date?: string | null | undefined;
+  soft_deadline?: string | null | undefined;
+  hard_deadline?: string | null | undefined;
 }
 
 export interface TaskUpdatePayload {
@@ -44,6 +49,8 @@ export interface TaskUpdatePayload {
   status?: string | undefined;
   priority?: number | null | undefined;
   due_date?: string | null | undefined;
+  soft_deadline?: string | null | undefined;
+  hard_deadline?: string | null | undefined;
 }
 
 /**
@@ -55,11 +62,13 @@ export interface ProblemDetail {
   status: number;
   detail?: string | null | undefined;
   instance?: string | null | undefined;
-  extensions?: {
-    current_revision?: number | undefined;
-    server_state?: Record<string, unknown> | undefined;
-    [key: string]: unknown;
-  } | undefined;
+  extensions?:
+    | {
+        current_revision?: number | undefined;
+        server_state?: Record<string, unknown> | undefined;
+        [key: string]: unknown;
+      }
+    | undefined;
 }
 
 /**
@@ -69,8 +78,10 @@ export interface Task {
   id: string;
   title: string;
   projectId: string;
-  /** Days from the viewed day. Negative = overdue, null = no deadline. */
+  /** Days from the viewed day. Negative = overdue, null = no deadline. (Soft deadline countdown if present, else hard deadline). */
   dueIn: number | null;
+  softDueIn?: number | null | undefined;
+  hardDueIn?: number | null | undefined;
   /** Estimated duration in minutes. */
   estimate: number;
   mood: Mood;
@@ -82,10 +93,14 @@ export interface Task {
   revision: number;
   description?: string | null | undefined;
   dueDate?: string | null | undefined;
+  softDeadline?: string | null | undefined;
+  hardDeadline?: string | null | undefined;
   priority?: number | null | undefined;
   ownerId?: string | undefined;
   createdAt?: string | undefined;
   updatedAt?: string | undefined;
+  syncStatus?: EntitySyncStatus | undefined;
+  conflictId?: string | null | undefined;
 }
 
 export interface ParsedDescription {
@@ -98,7 +113,9 @@ export interface ParsedDescription {
  * Parse metadata tags ([mood:...], [estimate:...]) from raw description
  * and separate the clean user-facing description.
  */
-export function parseDescriptionMetadata(rawDescription: string | null | undefined): ParsedDescription {
+export function parseDescriptionMetadata(
+  rawDescription: string | null | undefined,
+): ParsedDescription {
   if (!rawDescription) {
     return { userDescription: null };
   }
@@ -141,7 +158,7 @@ export function parseDescriptionMetadata(rawDescription: string | null | undefin
 export function formatBackendDescription(
   userDescription: string | null | undefined,
   mood?: Mood | null | undefined,
-  estimate?: number | null | undefined
+  estimate?: number | null | undefined,
 ): string | null {
   const cleaned = userDescription
     ? userDescription
@@ -166,17 +183,29 @@ export function formatBackendDescription(
 }
 
 /**
+ * Calculate difference in whole days between an ISO date string and today.
+ */
+export function calcDueInDays(isoString: string | null | undefined): number | null {
+  if (!isoString) return null;
+  const parsed = new Date(isoString);
+  if (isNaN(parsed.getTime())) return null;
+  const dueTime = new Date(parsed).setHours(0, 0, 0, 0);
+  const nowTime = new Date().setHours(0, 0, 0, 0);
+  return Math.round((dueTime - nowTime) / (1000 * 60 * 60 * 24));
+}
+
+/**
  * Convert backend task response to canonical UI Task.
  */
 export function backendToTask(bt: BackendTask, fallback?: Partial<Task>): Task {
-  // Compute dueIn from ISO due_date if available
-  let dueIn: number | null = fallback?.dueIn ?? null;
-  if (bt.due_date) {
-    const dueTime = new Date(bt.due_date).setHours(0, 0, 0, 0);
-    const nowTime = new Date().setHours(0, 0, 0, 0);
-    const diffDays = Math.round((dueTime - nowTime) / (1000 * 60 * 60 * 24));
-    dueIn = diffDays;
-  }
+  const softDeadline =
+    bt.soft_deadline ?? bt.due_date ?? fallback?.softDeadline ?? fallback?.dueDate ?? null;
+  const hardDeadline = bt.hard_deadline ?? fallback?.hardDeadline ?? null;
+
+  const softDueIn = calcDueInDays(softDeadline);
+  const hardDueIn = calcDueInDays(hardDeadline);
+  // Default countdown: soft deadline if present, else hard deadline
+  const dueIn = softDueIn ?? hardDueIn ?? fallback?.dueIn ?? null;
 
   // Parse metadata from description if serialized or fallback
   const parsed = parseDescriptionMetadata(bt.description);
@@ -187,8 +216,10 @@ export function backendToTask(bt: BackendTask, fallback?: Partial<Task>): Task {
   return {
     id: bt.id,
     title: bt.title,
-    projectId: bt.project_id || fallback?.projectId || "studio",
+    projectId: bt.project_id || fallback?.projectId || "unassigned",
     dueIn,
+    softDueIn,
+    hardDueIn,
     estimate,
     mood,
     frog: bt.priority === 1 || Boolean(fallback?.frog),
@@ -196,7 +227,9 @@ export function backendToTask(bt: BackendTask, fallback?: Partial<Task>): Task {
     start: fallback?.start,
     revision: bt.revision ?? 1,
     description,
-    dueDate: bt.due_date,
+    dueDate: softDeadline,
+    softDeadline,
+    hardDeadline,
     priority: bt.priority,
     ownerId: bt.owner_id,
     createdAt: bt.created_at,
@@ -214,14 +247,19 @@ export function taskToCreatePayload(task: {
   mood?: Mood;
   frog?: boolean;
   dueDate?: string | null;
+  softDeadline?: string | null;
+  hardDeadline?: string | null;
   description?: string | null;
 }): TaskCreatePayload {
+  const soft = task.softDeadline ?? task.dueDate ?? null;
   return {
     title: task.title,
     project_id: task.projectId && task.projectId !== "unassigned" ? task.projectId : null,
     description: formatBackendDescription(task.description, task.mood, task.estimate),
     priority: task.frog ? 1 : 3,
-    due_date: task.dueDate ?? null,
+    due_date: soft,
+    soft_deadline: soft,
+    hard_deadline: task.hardDeadline ?? null,
   };
 }
 
@@ -232,13 +270,14 @@ export function taskToCreatePayload(task: {
  */
 export function taskToUpdatePayload(
   updates: Partial<Task>,
-  currentTask?: Task | undefined
+  currentTask?: Task | undefined,
 ): TaskUpdatePayload {
   const payload: TaskUpdatePayload = {};
 
   if (updates.title !== undefined) payload.title = updates.title;
   if (updates.projectId !== undefined) {
-    payload.project_id = updates.projectId && updates.projectId !== "unassigned" ? updates.projectId : null;
+    payload.project_id =
+      updates.projectId && updates.projectId !== "unassigned" ? updates.projectId : null;
   }
   if (updates.done !== undefined) {
     payload.status = updates.done ? "done" : "open";
@@ -249,8 +288,15 @@ export function taskToUpdatePayload(
   if (updates.priority !== undefined) {
     payload.priority = updates.priority;
   }
-  if (updates.dueDate !== undefined) {
+  if (updates.softDeadline !== undefined) {
+    payload.soft_deadline = updates.softDeadline;
+    payload.due_date = updates.softDeadline;
+  } else if (updates.dueDate !== undefined) {
     payload.due_date = updates.dueDate;
+    payload.soft_deadline = updates.dueDate;
+  }
+  if (updates.hardDeadline !== undefined) {
+    payload.hard_deadline = updates.hardDeadline;
   }
 
   const hasDesc = updates.description !== undefined;

@@ -1,17 +1,31 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { Check, ChevronLeft, ChevronRight, Play, RotateCcw } from "lucide-react";
-import { useState } from "react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
+import { useEffect, useState } from "react";
 import { toneBg } from "@/components/blockday-ui";
-import { dailyCompletions, projectById, streaks } from "@/lib/blockday-data";
-import { formatClock, morph, useBlockday } from "@/lib/blockday-store";
+import {
+  advancements,
+  dailyCompletions,
+  projectById,
+  projectShare,
+  streaks,
+} from "@/lib/blockday-data";
+import { useOptionalBlockday } from "@/lib/blockday-store";
 
 export const Route = createFileRoute("/stats")({
   head: () => ({
     meta: [
       { title: "Composition of Work — Blockday" },
-      { name: "description", content: "The last twelve months: unified activity grid, flavor mix, streaks, and focus metrics." },
+      {
+        name: "description",
+        content:
+          "The last twelve months: unified activity grid, flavor mix, streaks, and focus metrics.",
+      },
       { property: "og:title", content: "Composition of Work — Blockday" },
-      { property: "og:description", content: "The last twelve months: unified activity grid, flavor mix, streaks, and focus metrics." },
+      {
+        property: "og:description",
+        content:
+          "The last twelve months: unified activity grid, flavor mix, streaks, and focus metrics.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -66,63 +80,218 @@ function generateYearMatrix(): { tone: CellTone; isToday?: boolean }[][] {
 }
 
 const yearMatrix = generateYearMatrix();
-const monthLabels = ["SEP", "OCT", "NOV", "DEC", "JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP"];
+const monthLabels = [
+  "SEP",
+  "OCT",
+  "NOV",
+  "DEC",
+  "JAN",
+  "FEB",
+  "MAR",
+  "APR",
+  "MAY",
+  "JUN",
+  "JUL",
+  "AUG",
+  "SEP",
+];
+
+interface QuoteItem {
+  id: number;
+  text: string;
+  author: string;
+  context?: string;
+  accent?: "red" | "blue" | "yellow";
+}
+
+const CURATED_QUOTES: QuoteItem[] = [
+  {
+    id: 1,
+    text: "Simplicity is about subtracting the obvious and adding the meaningful.",
+    author: "John Maeda",
+    context: "The Laws of Simplicity",
+    accent: "red",
+  },
+  {
+    id: 2,
+    text: "Art is not made for anybody and is, at the same time, for everybody.",
+    author: "Piet Mondrian",
+    context: "De Stijl Manifesto",
+    accent: "blue",
+  },
+  {
+    id: 3,
+    text: "Good design is as little design as possible. Less, but better.",
+    author: "Dieter Rams",
+    context: "Ten Principles for Good Design",
+    accent: "yellow",
+  },
+  {
+    id: 4,
+    text: "The details are not the details. They make the design.",
+    author: "Charles Eames",
+    context: "Design Philosophy",
+    accent: "red",
+  },
+  {
+    id: 5,
+    text: "Make the hard thing happen before the easy things crowd the day.",
+    author: "Blockday",
+    context: "A Note to Self",
+    accent: "yellow",
+  },
+  {
+    id: 6,
+    text: "Have no fear of perfection — you'll never reach it.",
+    author: "Salvador Dalí",
+    context: "On Mastery & Craft",
+    accent: "blue",
+  },
+  {
+    id: 7,
+    text: "Focus means saying no to the hundred other good ideas that there are.",
+    author: "Steve Jobs",
+    context: "On Strategy",
+    accent: "red",
+  },
+  {
+    id: 8,
+    text: "The sculpture is already complete in the marble. Chisel away the superfluous.",
+    author: "Michelangelo",
+    context: "On Craft & Form",
+    accent: "blue",
+  },
+];
+
+interface MondrianRect {
+  col: string;
+  row: string;
+  tone: string;
+}
+
+const MONDRIAN_LAYOUTS: MondrianRect[][] = [
+  // 1: Red dominant (Piet Mondrian 1921 style)
+  [
+    { col: "1 / 3", row: "1 / 3", tone: "bg-block-red" },
+    { col: "3 / 4", row: "1 / 2", tone: "bg-canvas" },
+    { col: "3 / 4", row: "2 / 4", tone: "bg-block-blue" },
+    { col: "1 / 2", row: "3 / 4", tone: "bg-block-yellow" },
+    { col: "2 / 3", row: "3 / 4", tone: "bg-panel" },
+    { col: "1 / 2", row: "4 / 5", tone: "bg-panel" },
+    { col: "2 / 3", row: "4 / 5", tone: "bg-canvas" },
+    { col: "3 / 4", row: "4 / 5", tone: "bg-block-yellow" },
+  ],
+  // 2: Blue dominant (Composition with Blue)
+  [
+    { col: "1 / 2", row: "1 / 3", tone: "bg-canvas" },
+    { col: "2 / 4", row: "1 / 3", tone: "bg-block-blue" },
+    { col: "1 / 2", row: "3 / 4", tone: "bg-block-yellow" },
+    { col: "2 / 3", row: "3 / 5", tone: "bg-block-red" },
+    { col: "3 / 4", row: "3 / 4", tone: "bg-panel" },
+    { col: "1 / 2", row: "4 / 5", tone: "bg-panel" },
+    { col: "3 / 4", row: "4 / 5", tone: "bg-canvas" },
+  ],
+  // 3: Yellow dominant (Composition with Yellow)
+  [
+    { col: "1 / 3", row: "1 / 2", tone: "bg-canvas" },
+    { col: "3 / 4", row: "1 / 3", tone: "bg-block-red" },
+    { col: "1 / 3", row: "2 / 4", tone: "bg-block-yellow" },
+    { col: "3 / 4", row: "3 / 4", tone: "bg-block-blue" },
+    { col: "1 / 2", row: "4 / 5", tone: "bg-panel" },
+    { col: "2 / 4", row: "4 / 5", tone: "bg-canvas" },
+  ],
+  // 4: Balanced Tableau (Composition II)
+  [
+    { col: "1 / 2", row: "1 / 3", tone: "bg-block-red" },
+    { col: "2 / 4", row: "1 / 2", tone: "bg-panel" },
+    { col: "2 / 3", row: "2 / 4", tone: "bg-canvas" },
+    { col: "3 / 4", row: "2 / 3", tone: "bg-block-blue" },
+    { col: "3 / 4", row: "3 / 5", tone: "bg-block-yellow" },
+    { col: "1 / 2", row: "3 / 5", tone: "bg-panel" },
+    { col: "2 / 3", row: "4 / 5", tone: "bg-canvas" },
+  ],
+  // 5: High Contrast De Stijl
+  [
+    { col: "1 / 2", row: "1 / 3", tone: "bg-canvas" },
+    { col: "2 / 4", row: "1 / 2", tone: "bg-block-red" },
+    { col: "2 / 3", row: "2 / 4", tone: "bg-block-blue" },
+    { col: "3 / 4", row: "2 / 3", tone: "bg-block-yellow" },
+    { col: "3 / 4", row: "3 / 4", tone: "bg-panel" },
+    { col: "1 / 2", row: "3 / 5", tone: "bg-block-red" },
+    { col: "2 / 3", row: "4 / 5", tone: "bg-panel" },
+    { col: "3 / 4", row: "4 / 5", tone: "bg-block-yellow" },
+  ],
+  // 6: Primary Triad Rhythm
+  [
+    { col: "1 / 2", row: "1 / 4", tone: "bg-block-yellow" },
+    { col: "2 / 4", row: "1 / 2", tone: "bg-canvas" },
+    { col: "2 / 3", row: "2 / 4", tone: "bg-block-red" },
+    { col: "3 / 4", row: "2 / 3", tone: "bg-block-blue" },
+    { col: "3 / 4", row: "3 / 4", tone: "bg-panel" },
+    { col: "1 / 2", row: "4 / 5", tone: "bg-panel" },
+    { col: "2 / 3", row: "4 / 5", tone: "bg-canvas" },
+    { col: "3 / 4", row: "4 / 5", tone: "bg-block-red" },
+  ],
+  // 7: Ivory & Crimson Anchor
+  [
+    { col: "1 / 3", row: "1 / 2", tone: "bg-block-red" },
+    { col: "3 / 4", row: "1 / 3", tone: "bg-block-blue" },
+    { col: "1 / 2", row: "2 / 4", tone: "bg-panel" },
+    { col: "2 / 3", row: "2 / 4", tone: "bg-canvas" },
+    { col: "3 / 4", row: "3 / 5", tone: "bg-block-yellow" },
+    { col: "1 / 2", row: "4 / 5", tone: "bg-block-red" },
+    { col: "2 / 3", row: "4 / 5", tone: "bg-canvas" },
+  ],
+  // 8: Architectural Balance
+  [
+    { col: "1 / 3", row: "1 / 2", tone: "bg-block-blue" },
+    { col: "3 / 4", row: "1 / 2", tone: "bg-canvas" },
+    { col: "1 / 2", row: "2 / 3", tone: "bg-panel" },
+    { col: "2 / 4", row: "2 / 4", tone: "bg-block-yellow" },
+    { col: "1 / 2", row: "3 / 5", tone: "bg-block-red" },
+    { col: "2 / 3", row: "4 / 5", tone: "bg-canvas" },
+    { col: "3 / 4", row: "4 / 5", tone: "bg-panel" },
+  ],
+];
 
 export function StatsPage() {
-  const {
-    tasks,
-    setTasks,
-    addTask,
-    dayOffset,
-    setDayOffset,
-    today,
-    timer,
-    setMode,
-    toggleTimer,
-    resetTimer,
-    selectTask,
-  } = useBlockday();
+  const [quoteIndex, setQuoteIndex] = useState(0);
 
-  const [newTitle, setNewTitle] = useState("");
-  const [sortByEnergy, setSortByEnergy] = useState(false);
-  const [synced, setSynced] = useState("Synced 2h ago");
+  const blockday = useOptionalBlockday();
+  const liveTasks = blockday?.tasks ?? [];
+  const liveTasksDone = liveTasks.filter((t) => t.done).length;
+  const liveTotalTasks = liveTasks.length;
 
   const { current } = streaks(dailyCompletions);
-  const totalTasksDone = 542; // Representative sample matching reference
+  const sampleTasksDone = 542; // Representative sample matching reference
+  const displayedTasksDone = liveTotalTasks > 0 ? liveTasksDone : sampleTasksDone;
   const pomodoros = 118; // Matching reference
   const bestDay = Math.max(...dailyCompletions, 7);
+  const totalProjectDone = projectShare.reduce((sum, p) => sum + p.done, 0);
 
-  const rawOpen = tasks.filter((t) => !t.done);
-  const done = tasks.filter((t) => t.done);
+  const currentQuote = CURATED_QUOTES[quoteIndex % CURATED_QUOTES.length]!;
+  const currentLayout = MONDRIAN_LAYOUTS[quoteIndex % MONDRIAN_LAYOUTS.length]!;
 
-  const energyOrder: Record<string, number> = { Deep: 1, Clear: 2, Creative: 3, Easy: 4 };
-  const open = sortByEnergy
-    ? [...rawOpen].sort((a, b) => (energyOrder[a.mood] ?? 5) - (energyOrder[b.mood] ?? 5))
-    : rawOpen;
-
-  const plannedMin = open.reduce((sum, t) => sum + t.estimate, 0);
-
-  const toggle = (id: string) => {
-    morph(() => setTasks((ts) => ts.map((t) => (t.id === id ? { ...t, done: !t.done } : t))));
+  const handlePrevQuote = () => {
+    setQuoteIndex((i) => (i - 1 + CURATED_QUOTES.length) % CURATED_QUOTES.length);
   };
 
-  const handleAddTask = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTitle.trim()) return;
-    addTask(newTitle.trim(), "blockday", 15);
-    setNewTitle("");
+  const handleNextQuote = () => {
+    setQuoteIndex((i) => (i + 1) % CURATED_QUOTES.length);
   };
 
-  const date = new Date(today ?? Date.now());
-  date.setDate(date.getDate() + dayOffset);
-  const dayNum = date.getDate();
-  const weekday = date.toLocaleDateString("en-US", { weekday: "long" });
-  const monthYear = date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
-
-  const calendarEvents = [
-    { time: "10:00am", title: "Standup" },
-    { time: "12:30pm", title: "Lunch" },
-  ];
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+      if (e.key === "ArrowLeft") {
+        setQuoteIndex((i) => (i - 1 + CURATED_QUOTES.length) % CURATED_QUOTES.length);
+      } else if (e.key === "ArrowRight") {
+        setQuoteIndex((i) => (i + 1) % CURATED_QUOTES.length);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, []);
 
   const cellColorClass = (tone: CellTone, isToday?: boolean) => {
     const base = isToday ? "ring-2 ring-block-red ring-offset-2 ring-offset-canvas z-10 " : "";
@@ -141,369 +310,433 @@ export function StatsPage() {
   };
 
   return (
-    <main className="grid grid-rows-[auto_1fr] min-h-[calc(100vh-72px)] bg-grid gap-[4px] border-l-[4px] border-grid overflow-y-auto">
+    <main className="flex flex-col h-full min-h-0 min-w-0 bg-grid gap-[4px] border-l-[4px] border-grid overflow-y-auto">
       {/* =========================================================================
-          UPPER SECTION: UNIFIED "COMPOSITION OF WORK" GRID
-          Pure Mondrian grid cells without nested card boxes
+          SECTION A: QUOTE COMPOSITION (TOP)
+          Large editorial quote panel (left) + irregular Mondrian color blocks (right)
          ========================================================================= */}
-      <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_130px] xl:grid-cols-[minmax(0,1fr)_160px] gap-[4px] bg-grid flex-shrink-0">
-        {/* Cell 1: Main Activity Canvas */}
-        <div className="bg-canvas p-5 sm:p-6 xl:p-7 flex flex-col justify-between">
-          {/* Header Row: Title + Integrated Metric Cells */}
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between pb-5 border-b-2 border-grid">
-            <div>
-              <span className="text-[10px] font-black uppercase tracking-[0.24em] text-muted-foreground block mb-1">
+      <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.35fr)_minmax(280px,380px)] xl:grid-cols-[minmax(0,1.45fr)_minmax(340px,440px)] gap-[4px] bg-grid flex-shrink-0">
+        {/* Left: Editorial Quote Panel */}
+        <div className="bg-canvas p-6 sm:p-8 xl:p-10 flex flex-col justify-between min-h-[300px] sm:min-h-[340px] xl:min-h-[380px]">
+          {/* Header Row: Label + Browsing Controls */}
+          <div className="flex items-center justify-between gap-4 pb-4 border-b-2 border-grid">
+            <div className="flex items-center gap-2">
+              <span className="size-2 bg-block-red flex-shrink-0" />
+              <span className="text-[10px] xl:text-[11px] font-black uppercase tracking-[0.24em] text-muted-foreground">
+                A NOTE TO SELF
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-[10px] xl:text-xs font-black tracking-wider text-muted-foreground select-none">
+                {quoteIndex + 1} / {CURATED_QUOTES.length}
+              </span>
+              <div className="flex border-2 border-grid divide-x-2 divide-grid bg-canvas">
+                <button
+                  type="button"
+                  onClick={handlePrevQuote}
+                  className="p-1 sm:p-1.5 hover:bg-block-ink hover:text-canvas transition-colors"
+                  aria-label="Previous quote"
+                  title="Previous quote"
+                >
+                  <ChevronLeft className="size-3.5 stroke-[3]" />
+                </button>
+                <button
+                  type="button"
+                  onClick={handleNextQuote}
+                  className="p-1 sm:p-1.5 hover:bg-block-ink hover:text-canvas transition-colors"
+                  aria-label="Next quote"
+                  title="Next quote"
+                >
+                  <ChevronRight className="size-3.5 stroke-[3]" />
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Focal Point: Bold Oversized Quote */}
+          <div className="my-6 sm:my-8 xl:my-10 flex-1 flex flex-col justify-center">
+            <blockquote className="max-w-4xl">
+              <p className="font-display text-2xl sm:text-3xl md:text-4xl xl:text-[42px] font-extrabold uppercase leading-[1.08] tracking-tight text-foreground">
+                “{currentQuote.text}”
+              </p>
+            </blockquote>
+          </div>
+
+          {/* Attribution Row */}
+          <div className="flex items-center justify-between gap-4 pt-4 border-t-2 border-grid/20">
+            <div className="flex items-center gap-2.5">
+              <span
+                className={`w-5 h-1 ${
+                  currentQuote.accent === "yellow"
+                    ? "bg-block-yellow"
+                    : currentQuote.accent === "blue"
+                      ? "bg-block-blue"
+                      : "bg-block-red"
+                } flex-shrink-0`}
+              />
+              <cite className="text-[10px] sm:text-[11px] font-black uppercase tracking-[0.2em] text-muted-foreground not-italic">
+                {currentQuote.author}
+                {currentQuote.context ? ` · ${currentQuote.context}` : ""}
+              </cite>
+            </div>
+            <span className="text-[9px] font-black uppercase tracking-[0.18em] text-muted-foreground/60 hidden sm:inline-block">
+              Editorial Daily
+            </span>
+          </div>
+        </div>
+
+        {/* Right: Mondrian Geometric Color Blocks */}
+        <div
+          className="w-full h-[220px] sm:h-[280px] lg:h-full min-h-[220px] sm:min-h-[280px] lg:min-h-0 bg-grid p-0 overflow-hidden"
+          aria-label="Mondrian geometric composition"
+        >
+          <div className="grid grid-cols-[1.2fr_0.8fr_1fr] grid-rows-[1.3fr_0.7fr_1.1fr_0.6fr] gap-[4px] bg-grid h-full w-full">
+            {currentLayout.map((rect, idx) => (
+              <div
+                key={idx}
+                style={{ gridColumn: rect.col, gridRow: rect.row }}
+                className={`${rect.tone} transition-colors duration-300`}
+              />
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* =========================================================================
+          SECTION B: COMPOSITION OF WORK (BELOW THE QUOTE)
+          Twelve-month activity heatmap, summary metrics, flavor mix, intensity legend
+         ========================================================================= */}
+      <section className="bg-canvas p-5 sm:p-6 xl:p-8 flex flex-col justify-between flex-shrink-0">
+        {/* Header Row: Title + Integrated Metric Cells */}
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between pb-5 border-b-2 border-grid">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-[10px] font-black uppercase tracking-[0.24em] text-muted-foreground">
                 The last twelve months
               </span>
-              <h1 className="font-display text-4xl sm:text-5xl xl:text-6xl uppercase leading-none tracking-tight">
-                Composition of Work
-              </h1>
+              <span className="text-[8px] font-mono uppercase text-muted-foreground/80 border border-grid/40 px-1 py-0.5">
+                {liveTotalTasks > 0 ? "Live Tasks Connected" : "Sample Demo Archive"}
+              </span>
             </div>
-
-            {/* Metrics: single contiguous grid row with internal line dividers */}
-            <div className="flex border-2 border-grid bg-canvas self-start lg:self-auto overflow-hidden divide-x-2 divide-grid">
-              <div className="bg-block-yellow text-block-ink px-4 py-2 sm:px-5 sm:py-2.5 text-center min-w-[85px] xl:min-w-[105px]">
-                <span className="font-display text-4xl xl:text-5xl font-black leading-none tabular-nums block">
-                  {current || 5}
-                </span>
-                <span className="text-[8.5px] xl:text-[9.5px] font-black uppercase tracking-[0.16em] block mt-1">
-                  Day Streak
-                </span>
-              </div>
-              <div className="bg-canvas text-foreground px-4 py-2 sm:px-5 sm:py-2.5 text-center min-w-[95px] xl:min-w-[120px]">
-                <span className="font-display text-4xl xl:text-5xl font-black leading-none tabular-nums block">
-                  {totalTasksDone}
-                </span>
-                <span className="text-[8.5px] xl:text-[9.5px] font-black uppercase tracking-[0.16em] text-muted-foreground block mt-1">
-                  Tasks Done
-                </span>
-              </div>
-              <div className="bg-canvas text-foreground px-4 py-2 sm:px-5 sm:py-2.5 text-center min-w-[95px] xl:min-w-[120px]">
-                <span className="font-display text-4xl xl:text-5xl font-black leading-none tabular-nums block">
-                  {pomodoros}
-                </span>
-                <span className="text-[8.5px] xl:text-[9.5px] font-black uppercase tracking-[0.16em] text-muted-foreground block mt-1">
-                  Pomodoros
-                </span>
-              </div>
-              <div className="bg-canvas text-foreground px-4 py-2 sm:px-5 sm:py-2.5 text-center min-w-[80px] xl:min-w-[95px]">
-                <span className="font-display text-4xl xl:text-5xl font-black leading-none tabular-nums block">
-                  {bestDay}
-                </span>
-                <span className="text-[8.5px] xl:text-[9.5px] font-black uppercase tracking-[0.16em] text-muted-foreground block mt-1">
-                  Best Day
-                </span>
-              </div>
-            </div>
+            <h1 className="font-display text-4xl sm:text-5xl xl:text-6xl uppercase leading-none tracking-tight text-foreground">
+              Composition of Work
+            </h1>
           </div>
 
-          {/* Activity Heat Map: Direct grid spanning the cell */}
-          <div className="my-5 xl:my-6 overflow-x-auto">
-            <div className="min-w-[760px] xl:min-w-[920px]">
-              {/* Month Markers directly aligned over columns */}
-              <div className="flex justify-between pb-2 text-[9px] xl:text-[10px] font-black uppercase tracking-[0.24em] text-muted-foreground px-1">
-                {monthLabels.map((m, idx) => (
-                  <span key={idx}>{m}</span>
-                ))}
-              </div>
-
-              {/* 52-column x 7-row Activity Grid */}
-              <div className="border-2 border-grid p-3 sm:p-4 bg-canvas">
-                <div className="grid grid-flow-col grid-rows-7 gap-[3px] xl:gap-[4px]">
-                  {yearMatrix.map((col, colIdx) =>
-                    col.map((cell, rowIdx) => (
-                      <div
-                        key={`${colIdx}-${rowIdx}`}
-                        title={`Week ${colIdx + 1}, Day ${rowIdx + 1}`}
-                        className={`size-3.5 sm:size-4 md:size-[17px] xl:size-[19px] aspect-square transition-transform hover:scale-125 ${cellColorClass(cell.tone, cell.isToday)}`}
-                      />
-                    ))
-                  )}
-                </div>
-              </div>
+          {/* Metrics: single contiguous grid row with internal line dividers */}
+          <div className="flex border-2 border-grid bg-canvas self-start lg:self-auto overflow-x-auto max-w-full divide-x-2 divide-grid">
+            <div className="bg-block-yellow text-block-ink px-4 py-2 sm:px-5 sm:py-2.5 text-center min-w-[85px] xl:min-w-[105px]">
+              <span className="font-display text-4xl xl:text-5xl font-black leading-none tabular-nums block">
+                {current || 5}
+              </span>
+              <span className="text-[8.5px] xl:text-[9.5px] font-black uppercase tracking-[0.16em] block mt-1">
+                Day Streak
+              </span>
             </div>
-          </div>
-
-          {/* Bottom Bar: Flavor Mix & Activity Intensity Legend */}
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pt-4 border-t-2 border-grid text-[9.5px] font-black uppercase tracking-[0.14em]">
-            {/* Flavor Mix: single continuous segmented bar */}
-            <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center">
-              <span className="text-[8.5px] text-muted-foreground mr-2 tracking-[0.2em]">Flavor Mix</span>
-              <div className="flex border-2 border-grid h-7 xl:h-8 divide-x-2 divide-grid overflow-hidden">
-                <div className="bg-block-red text-on-primary px-3 flex items-center">
-                  Frog 1
-                </div>
-                <div className="bg-block-blue text-on-primary px-3 flex items-center">
-                  Deep 2
-                </div>
-                <div className="bg-block-yellow text-block-ink px-3 flex items-center">
-                  Spark 1
-                </div>
-                <div className="bg-panel text-foreground px-3 flex items-center">
-                  Errand 3
-                </div>
-                <div className="bg-canvas text-foreground px-3 flex items-center">
-                  Plain 2
-                </div>
-              </div>
+            <div className="bg-canvas text-foreground px-4 py-2 sm:px-5 sm:py-2.5 text-center min-w-[95px] xl:min-w-[120px]">
+              <span className="font-display text-4xl xl:text-5xl font-black leading-none tabular-nums block">
+                {displayedTasksDone}
+              </span>
+              <span className="text-[8.5px] xl:text-[9.5px] font-black uppercase tracking-[0.16em] text-muted-foreground block mt-1">
+                Tasks Done
+              </span>
             </div>
-
-            {/* Activity Intensity Legend & Action */}
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-1.5 text-[8.5px] text-muted-foreground">
-                <span>Less</span>
-                <span className="size-3 border border-grid bg-panel/30" />
-                <span className="size-3 border border-grid bg-block-blue" />
-                <span className="size-3 border border-grid bg-block-yellow" />
-                <span className="size-3 border border-grid bg-block-red" />
-                <span>More</span>
-              </div>
-              <button
-                onClick={() => alert("Data reset to initial composition state")}
-                className="ghost-chip text-[8.5px] py-1 px-2.5 hover:bg-block-ink hover:text-canvas"
-              >
-                Reset all data
-              </button>
+            <div className="bg-canvas text-foreground px-4 py-2 sm:px-5 sm:py-2.5 text-center min-w-[95px] xl:min-w-[120px]">
+              <span className="font-display text-4xl xl:text-5xl font-black leading-none tabular-nums block">
+                {pomodoros}
+              </span>
+              <span className="text-[8.5px] xl:text-[9.5px] font-black uppercase tracking-[0.16em] text-muted-foreground block mt-1">
+                Pomodoros
+              </span>
+            </div>
+            <div className="bg-canvas text-foreground px-4 py-2 sm:px-5 sm:py-2.5 text-center min-w-[80px] xl:min-w-[95px]">
+              <span className="font-display text-4xl xl:text-5xl font-black leading-none tabular-nums block">
+                {bestDay}
+              </span>
+              <span className="text-[8.5px] xl:text-[9.5px] font-black uppercase tracking-[0.16em] text-muted-foreground block mt-1">
+                Best Day
+              </span>
             </div>
           </div>
         </div>
 
-        {/* Cell 2: Integrated Yellow Geometric Slab */}
-        <div className="hidden lg:block bg-block-yellow h-full w-full" />
+        {/* Activity Heat Map: Direct grid spanning the section */}
+        <div className="my-5 xl:my-6 overflow-x-auto">
+          <div className="min-w-[760px] xl:min-w-[920px]">
+            {/* Month Markers directly aligned over columns */}
+            <div className="flex justify-between pb-2 text-[9px] xl:text-[10px] font-black uppercase tracking-[0.24em] text-muted-foreground px-1">
+              {monthLabels.map((m, idx) => (
+                <span key={idx}>{m}</span>
+              ))}
+            </div>
+
+            {/* 52-column x 7-row Activity Grid */}
+            <div className="border-2 border-grid p-3 sm:p-4 bg-canvas">
+              <div className="grid grid-flow-col grid-rows-7 gap-[3px] xl:gap-[4px]">
+                {yearMatrix.map((col, colIdx) =>
+                  col.map((cell, rowIdx) => (
+                    <div
+                      key={`${colIdx}-${rowIdx}`}
+                      title={`Week ${colIdx + 1}, Day ${rowIdx + 1}`}
+                      className={`size-3.5 sm:size-4 md:size-[17px] xl:size-[19px] aspect-square transition-transform hover:scale-125 ${cellColorClass(cell.tone, cell.isToday)}`}
+                    />
+                  )),
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom Bar: Flavor Mix & Activity Intensity Legend & Action */}
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between pt-4 border-t-2 border-grid text-[9.5px] font-black uppercase tracking-[0.14em]">
+          {/* Flavor Mix: single continuous segmented bar */}
+          <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center">
+            <span className="text-[8.5px] text-muted-foreground mr-2 tracking-[0.2em]">
+              Flavor Mix
+            </span>
+            <div className="flex border-2 border-grid h-7 xl:h-8 divide-x-2 divide-grid overflow-hidden">
+              <div className="bg-block-red text-on-primary px-3 flex items-center">Frog 1</div>
+              <div className="bg-block-blue text-on-primary px-3 flex items-center">Deep 2</div>
+              <div className="bg-block-yellow text-block-ink px-3 flex items-center">Spark 1</div>
+              <div className="bg-panel text-foreground px-3 flex items-center">Errand 3</div>
+              <div className="bg-canvas text-foreground px-3 flex items-center">Plain 2</div>
+            </div>
+          </div>
+
+          {/* Activity Intensity Legend & Action */}
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-1.5 text-[8.5px] text-muted-foreground">
+              <span>Less</span>
+              <span className="size-3 border border-grid bg-panel/30" />
+              <span className="size-3 border border-grid bg-block-blue" />
+              <span className="size-3 border border-grid bg-block-yellow" />
+              <span className="size-3 border border-grid bg-block-red" />
+              <span>More</span>
+            </div>
+            <button
+              type="button"
+              onClick={() => alert("Data reset to initial composition state")}
+              className="ghost-chip text-[8.5px] py-1 px-2.5 hover:bg-block-ink hover:text-canvas"
+            >
+              Reset all data
+            </button>
+          </div>
+        </div>
       </section>
 
       {/* =========================================================================
-          LOWER SECTION: UNIFIED WORKSPACE GRID
-          Zero floating boxes: directly divided cells matching the De Stijl geometry
+          SECTION C: ASYMMETRIC DE STIJL TRIAD (BOTTOM WORKSPACE)
+          1. Project Allocation (~44%)
+          2. Energy Architecture / Mood Distribution (~34%)
+          3. Milestones & Grounding Slabs (~22%)
          ========================================================================= */}
-      <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.25fr)_130px_minmax(0,1.1fr)] xl:grid-cols-[minmax(0,1.3fr)_160px_minmax(0,1.1fr)] gap-[4px] bg-grid h-full">
-        {/* Cell 1: Today Date & Tasks Ledger */}
-        <div className="bg-canvas flex flex-col h-full justify-between">
+      <section className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1.05fr)_minmax(260px,320px)] xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1.1fr)_minmax(280px,340px)] gap-[4px] bg-grid flex-1 min-h-[260px]">
+        {/* Cell 1: Project Allocation & Share */}
+        <div className="bg-canvas p-5 sm:p-6 flex flex-col justify-between">
           <div>
-            {/* Date Header */}
-            <div className="border-b-2 border-grid p-4 xl:p-5">
-              <div className="flex items-baseline justify-between gap-3">
-                <div className="flex items-baseline gap-3">
-                  <span className="font-display text-5xl xl:text-6xl font-black leading-none tabular-nums text-foreground">
-                    {dayNum}
-                  </span>
-                  <div>
-                    <h2 className="font-display text-xl xl:text-2xl uppercase leading-none tracking-tight">{weekday}</h2>
-                    <p className="mt-0.5 text-[9px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
-                      {monthYear}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <button
-                    onClick={() => morph(() => setDayOffset(Math.max(-3, dayOffset - 1)))}
-                    disabled={dayOffset <= -3}
-                    className="ghost-chip px-2 py-1"
-                    title="Previous Day"
-                  >
-                    <ChevronLeft className="size-3" />
-                  </button>
-                  <button
-                    onClick={() => morph(() => setDayOffset(0))}
-                    className="ghost-chip px-2 py-1 text-[9px]"
-                  >
-                    Today
-                  </button>
-                  <button
-                    onClick={() => morph(() => setDayOffset(Math.min(0, dayOffset + 1)))}
-                    disabled={dayOffset >= 0}
-                    className="ghost-chip px-2 py-1"
-                    title="Next Day"
-                  >
-                    <ChevronRight className="size-3" />
-                  </button>
-                  <button
-                    onClick={() => morph(() => setSortByEnergy(!sortByEnergy))}
-                    className={`ghost-chip flex items-center gap-1 text-[9px] py-1 ${sortByEnergy ? "bg-block-ink text-canvas" : ""}`}
-                    title="Sort by Energy"
-                  >
-                    <span className="flex gap-0.5">
-                      <i className="size-1.5 bg-block-red" />
-                      <i className="size-1.5 bg-block-yellow" />
-                      <i className="size-1.5 bg-block-blue" />
-                    </span>
-                    Sort by energy
-                  </button>
-                </div>
+            <div className="flex items-center justify-between pb-3 border-b-2 border-grid">
+              <div>
+                <span className="text-[9px] font-black uppercase tracking-[0.24em] text-muted-foreground block">
+                  Distribution of Effort
+                </span>
+                <h3 className="font-display text-xl sm:text-2xl uppercase tracking-tight text-foreground mt-0.5">
+                  Project Allocation
+                </h3>
               </div>
+              <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                {totalProjectDone} Tasks Total
+              </span>
+            </div>
 
-              <div className="mt-3 flex items-center justify-between text-[9px] font-black uppercase tracking-[0.16em] text-muted-foreground border-t border-grid/20 pt-2">
-                <span>{open.length} Open · {done.length} Done · {plannedMin}M Planned</span>
-                <span>Wraps ~9:25AM</span>
+            {/* Proportional Segmented De Stijl Bar */}
+            <div className="mt-4 mb-4">
+              <div className="flex border-2 border-grid h-4 sm:h-5 overflow-hidden divide-x-2 divide-grid border-collapse">
+                {projectShare.map((ps) => {
+                  const proj = projectById(ps.projectId);
+                  const pct = Math.round((ps.done / totalProjectDone) * 100);
+                  const toneClass = proj ? toneBg[proj.tone] : "bg-panel";
+                  return (
+                    <div
+                      key={ps.projectId}
+                      style={{ width: `${pct}%` }}
+                      title={`${proj?.name ?? ps.projectId}: ${pct}% (${ps.done} tasks)`}
+                      className={`${toneClass} transition-all`}
+                    />
+                  );
+                })}
               </div>
             </div>
 
-            {/* Quick add task input */}
-            <form onSubmit={handleAddTask} className="border-b-2 border-grid bg-canvas px-4 py-2.5">
-              <input
-                value={newTitle}
-                onChange={(e) => setNewTitle(e.target.value)}
-                placeholder="Add to today..."
-                className="w-full bg-transparent text-xs font-medium outline-none placeholder:text-muted-foreground"
-              />
-            </form>
-
-            {/* Task list rows */}
-            <div className="divide-y divide-grid/20">
-              {open.map((t) => {
-                const project = projectById(t.projectId);
+            {/* Project Rows Grid */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+              {projectShare.map((ps) => {
+                const proj = projectById(ps.projectId);
+                const pct = Math.round((ps.done / totalProjectDone) * 100);
                 return (
                   <div
-                    key={t.id}
-                    onClick={() => selectTask(t.id)}
-                    className="group flex cursor-pointer items-center justify-between px-4 py-2.5 xl:py-3 transition-colors hover:bg-panel"
+                    key={ps.projectId}
+                    className="flex items-center justify-between p-2 border border-grid/25 hover:border-grid bg-panel/20 transition-colors"
                   >
-                    <div className="flex items-center gap-3">
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          toggle(t.id);
-                        }}
-                        className="check-button size-5"
-                        aria-label={`Complete ${t.title}`}
-                      >
-                        {t.done && <Check className="size-3 stroke-[3]" />}
-                      </button>
-                      <span className="text-sm font-bold tracking-tight">{t.title}</span>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span
+                        className={`size-2.5 flex-shrink-0 ${proj ? toneBg[proj.tone] : "bg-panel"}`}
+                      />
+                      <span className="font-bold truncate text-[11px] sm:text-xs text-foreground">
+                        {proj?.name ?? ps.projectId}
+                      </span>
                     </div>
-                    <div className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
-                      <span>{t.estimate}M</span>
-                      <span className={`project-swatch ${project ? toneBg[project.tone] : "bg-panel"}`} />
+                    <div className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground ml-2 flex-shrink-0">
+                      <span>{ps.done}</span>
+                      <span className="font-bold text-foreground">{pct}%</span>
                     </div>
                   </div>
                 );
               })}
             </div>
+          </div>
 
-            {done.length > 0 && (
-              <div className="border-t-2 border-grid">
-                <div className="bg-panel px-4 py-1.5 text-[8.5px] font-black uppercase tracking-[0.18em] text-muted-foreground border-b border-grid/20">
-                  Done · {done.length}
-                </div>
-                <div className="divide-y divide-grid/20 opacity-60">
-                  {done.map((t) => {
-                    const project = projectById(t.projectId);
-                    return (
-                      <div
-                        key={t.id}
-                        onClick={() => toggle(t.id)}
-                        className="group flex cursor-pointer items-center justify-between px-4 py-1.5 hover:opacity-100 transition-opacity"
-                      >
-                        <div className="flex items-center gap-3">
-                          <span className={`h-3.5 w-1 flex-shrink-0 ${project ? toneBg[project.tone] : "bg-block-blue"}`} />
-                          <span className="text-xs line-through">{t.title}</span>
-                        </div>
-                        <span className="font-mono text-[9px] text-muted-foreground">{t.estimate}M</span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
+          <div className="mt-4 pt-3 border-t border-grid/20 flex items-center justify-between text-[8.5px] font-black uppercase tracking-[0.16em] text-muted-foreground">
+            <span>Primary Focus: Blockday Launch</span>
+            <span>Balanced Output</span>
           </div>
         </div>
 
-        {/* Cell 2: Contiguous Stacked Blue and Red Geometric Slabs */}
-        <div className="hidden lg:grid grid-rows-2 gap-[4px] h-full">
-          <div className="bg-block-blue h-full w-full" />
-          <div className="bg-block-red h-full w-full" />
-        </div>
-
-        {/* Cell 3: Contiguous Stacked Focus Timer & Google Calendar */}
-        <div className="hidden lg:grid grid-rows-2 gap-[4px] h-full">
-          {/* Focus Timer */}
-          <div className="bg-canvas p-4 xl:p-5 flex flex-col justify-between h-full">
-            <div>
-              <div className="flex border-2 border-grid">
-                <button
-                  onClick={() => setMode("Focus")}
-                  className={`flex-1 py-1 text-center text-[9px] font-black uppercase tracking-[0.14em] transition-colors ${timer.mode === "Focus" ? "bg-block-ink text-canvas" : "bg-canvas text-foreground"}`}
-                >
-                  Focus
-                </button>
-                <button
-                  onClick={() => setMode("Break")}
-                  className={`flex-1 py-1 text-center text-[9px] font-black uppercase tracking-[0.14em] transition-colors ${timer.mode === "Break" ? "bg-block-ink text-canvas" : "bg-canvas text-foreground"}`}
-                >
-                  Break
-                </button>
-              </div>
-
-              <div className="mt-4 text-center">
-                <span className="font-display text-5xl font-black leading-none tabular-nums tracking-tight">
-                  {formatClock(timer.seconds)}
+        {/* Cell 2: Energy Architecture & Mood Mix */}
+        <div className="bg-canvas p-5 sm:p-6 flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between pb-3 border-b-2 border-grid">
+              <div>
+                <span className="text-[9px] font-black uppercase tracking-[0.24em] text-muted-foreground block">
+                  Cognitive Rhythm
                 </span>
-                <p className="mt-1.5 text-[8px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
-                  Drag a task here, or press ▶ on one
+                <h3 className="font-display text-xl sm:text-2xl uppercase tracking-tight text-foreground mt-0.5">
+                  Energy Distribution
+                </h3>
+              </div>
+              <span className="font-mono text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                28.4h / Wk Avg
+              </span>
+            </div>
+
+            {/* Proportional Segmented Energy Bar */}
+            <div className="mt-4 mb-4">
+              <div className="flex border-2 border-grid h-4 sm:h-5 overflow-hidden divide-x-2 divide-grid border-collapse">
+                <div style={{ width: "42%" }} className="bg-block-red" title="Deep Work: 42%" />
+                <div
+                  style={{ width: "28%" }}
+                  className="bg-block-blue"
+                  title="Clear Execution: 28%"
+                />
+                <div
+                  style={{ width: "18%" }}
+                  className="bg-block-yellow"
+                  title="Creative Exploration: 18%"
+                />
+                <div style={{ width: "12%" }} className="bg-panel" title="Easy Admin: 12%" />
+              </div>
+            </div>
+
+            {/* 4 Energy Mood Cards */}
+            <div className="grid grid-cols-2 gap-2">
+              <div className="border border-grid/30 p-2.5 bg-panel/15 flex flex-col justify-between">
+                <div className="flex items-center justify-between">
+                  <span className="text-[8.5px] font-black uppercase tracking-[0.16em] text-block-red">
+                    Deep
+                  </span>
+                  <span className="font-mono text-[11px] font-black text-foreground">42%</span>
+                </div>
+                <p className="mt-1 text-[9px] font-bold text-muted-foreground">
+                  High-order synthesis
                 </p>
               </div>
-            </div>
 
-            <div className="mt-3">
-              <div className="flex gap-2">
-                <button
-                  onClick={toggleTimer}
-                  className="ghost-chip flex-1 py-1.5 text-center text-[9px] bg-block-blue text-on-primary hover:bg-block-ink hover:text-canvas"
-                >
-                  <Play className="inline-block size-2.5 mr-1 fill-current" />
-                  {timer.running ? "Pause" : "Start"}
-                </button>
-                <button
-                  onClick={resetTimer}
-                  className="ghost-chip py-1.5 px-2.5"
-                  title="Reset timer"
-                >
-                  <RotateCcw className="size-2.5" />
-                </button>
+              <div className="border border-grid/30 p-2.5 bg-panel/15 flex flex-col justify-between">
+                <div className="flex items-center justify-between">
+                  <span className="text-[8.5px] font-black uppercase tracking-[0.16em] text-block-blue">
+                    Clear
+                  </span>
+                  <span className="font-mono text-[11px] font-black text-foreground">28%</span>
+                </div>
+                <p className="mt-1 text-[9px] font-bold text-muted-foreground">Linear execution</p>
               </div>
-              <p className="mt-1.5 text-center text-[8px] font-black uppercase tracking-[0.16em] text-muted-foreground">
-                {timer.sessions} Today
-              </p>
+
+              <div className="border border-grid/30 p-2.5 bg-panel/15 flex flex-col justify-between">
+                <div className="flex items-center justify-between">
+                  <span className="text-[8.5px] font-black uppercase tracking-[0.16em] text-block-yellow">
+                    Creative
+                  </span>
+                  <span className="font-mono text-[11px] font-black text-foreground">18%</span>
+                </div>
+                <p className="mt-1 text-[9px] font-bold text-muted-foreground">
+                  Drafts & exploration
+                </p>
+              </div>
+
+              <div className="border border-grid/30 p-2.5 bg-panel/15 flex flex-col justify-between">
+                <div className="flex items-center justify-between">
+                  <span className="text-[8.5px] font-black uppercase tracking-[0.16em] text-muted-foreground">
+                    Easy
+                  </span>
+                  <span className="font-mono text-[11px] font-black text-foreground">12%</span>
+                </div>
+                <p className="mt-1 text-[9px] font-bold text-muted-foreground">Admin & cadence</p>
+              </div>
             </div>
           </div>
 
-          {/* Google Calendar */}
-          <div className="bg-canvas p-4 xl:p-5 flex flex-col justify-between h-full">
+          <div className="mt-4 pt-3 border-t border-grid/20 flex items-center justify-between text-[8.5px] font-black uppercase tracking-[0.16em] text-muted-foreground">
+            <span>70% High Cognitive Demand</span>
+            <span>Target: &gt;65%</span>
+          </div>
+        </div>
+
+        {/* Cell 3: Recent Advancements & Grounding Color Slabs */}
+        <div className="grid grid-rows-[minmax(0,1fr)_85px] sm:grid-rows-[minmax(0,1fr)_95px] gap-[4px] bg-grid h-full">
+          {/* Sub-cell 3A: Recent Advancements */}
+          <div className="bg-canvas p-4 xl:p-5 flex flex-col justify-between">
             <div>
-              <div className="flex items-center justify-between">
-                <span className="text-[9px] font-black uppercase tracking-[0.16em]">Google Calendar</span>
-                <span className="text-[10px] text-muted-foreground">✕</span>
-              </div>
-              <div className="mt-1 flex items-center gap-1.5 text-[8px] font-bold uppercase tracking-wider text-muted-foreground">
-                <span className="size-1.5 bg-block-blue" />
-                <span>{synced}</span>
+              <div className="flex items-center justify-between pb-2 border-b-2 border-grid">
+                <span className="text-[8.5px] font-black uppercase tracking-[0.2em] text-muted-foreground">
+                  Milestones
+                </span>
+                <span className="size-1.5 bg-block-red" />
               </div>
 
-              <div className="mt-3 space-y-1.5 border-t border-grid/20 pt-2 text-xs">
-                {calendarEvents.map((evt) => (
-                  <div key={evt.time} className="flex items-baseline justify-between font-mono">
-                    <span className="text-[10px] text-muted-foreground">{evt.time}</span>
-                    <span className="font-sans font-bold text-xs">{evt.title}</span>
-                  </div>
-                ))}
+              <div className="mt-2.5 space-y-2">
+                {advancements.slice(0, 3).map((adv, idx) => {
+                  const proj = projectById(adv.projectId);
+                  return (
+                    <div
+                      key={idx}
+                      className="border-b border-grid/15 pb-2 last:border-b-0 last:pb-0"
+                    >
+                      <div className="flex items-center justify-between text-[8px] font-black uppercase tracking-wider text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <span className={`size-1.5 ${proj ? toneBg[proj.tone] : "bg-panel"}`} />
+                          {proj?.name ?? adv.projectId}
+                        </span>
+                        <span className="font-mono">{adv.when}</span>
+                      </div>
+                      <p className="mt-0.5 text-[10px] xl:text-[11px] font-bold text-foreground leading-tight truncate">
+                        {adv.text}
+                      </p>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
-            <div className="mt-3 flex gap-2 border-t border-grid/20 pt-2">
-              <button
-                onClick={() => setSynced("Synced just now")}
-                className="ghost-chip flex-1 py-1 text-center text-[8.5px]"
-              >
-                Sync
-              </button>
-              <button
-                onClick={() => alert("Flow scheduled into calendar")}
-                className="ghost-chip flex-1 py-1 text-center text-[8.5px]"
-              >
-                Send flow
-              </button>
+            <div className="pt-2 border-t border-grid/20 flex items-center justify-between text-[8px] font-black uppercase tracking-[0.16em] text-muted-foreground">
+              <span>Studio Pace</span>
+              <span>4 / 6 Active</span>
             </div>
+          </div>
+
+          {/* Sub-cell 3B: Solid De Stijl Grounding Slabs */}
+          <div className="grid grid-cols-[1.4fr_1fr] gap-[4px] bg-grid h-full w-full">
+            <div className="bg-block-yellow h-full w-full" />
+            <div className="bg-block-blue h-full w-full" />
           </div>
         </div>
       </section>

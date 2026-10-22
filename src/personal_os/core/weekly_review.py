@@ -130,7 +130,7 @@ class WeeklyReviewGenerator:
             if not tasks_file.exists():
                 continue
             for line in tasks_file.read_text(encoding="utf-8").split("\n"):
-                if line.strip().startswith("- [x]"):
+                if line.strip().startswith(("- [x]", "- [X]")):
                     completed.append({"project": project_dir.name, "task": line.strip()})
         return completed
 
@@ -194,34 +194,169 @@ class WeeklyReviewGenerator:
                     })
         return learning
 
-    # ---- ANALYZE ----
+    # ---- ANALYZE & METRICS ----
 
-    def analyze(self, entries: List[Dict[str, str]]) -> Dict[str, object]:
-        total_hours = 0.0
+    @staticmethod
+    def _extract_hours(text: str) -> float:
+        """Extract hours from duration markers: @2h, 2h, (2h), timestamps (10:00 - 12:30), etc."""
+        total = 0.0
+        s = text
+
+        # 1. Timestamps (e.g. 10:00 - 12:30 or 10:00 to 12:30)
+        for m in re.finditer(
+            r"\b([01]?\d|2[0-3]):([0-5]\d)\s*(?:-|–|to)\s*([01]?\d|2[0-3]):([0-5]\d)\b",
+            s,
+            re.IGNORECASE,
+        ):
+            h1, m1, h2, m2 = int(m.group(1)), int(m.group(2)), int(m.group(3)), int(m.group(4))
+            diff = (h2 * 60 + m2) - (h1 * 60 + m1)
+            if diff > 0:
+                total += diff / 60.0
+        s = re.sub(
+            r"\b([01]?\d|2[0-3]):([0-5]\d)\s*(?:-|–|to)\s*([01]?\d|2[0-3]):([0-5]\d)\b",
+            " ",
+            s,
+            flags=re.IGNORECASE,
+        )
+
+        # 2. @ markers: @2h, @2.5h, @30m, @2
+        for m in re.finditer(
+            r"@(\d+(?:\.\d+)?)\s*(hours?|hrs?|hr|h|minutes?|mins?|min|m)?\b",
+            s,
+            re.IGNORECASE,
+        ):
+            val = float(m.group(1))
+            unit = (m.group(2) or "h").lower()
+            if unit.startswith("m"):
+                total += val / 60.0
+            else:
+                total += val
+        s = re.sub(
+            r"@(\d+(?:\.\d+)?)\s*(hours?|hrs?|hr|h|minutes?|mins?|min|m)?\b",
+            " ",
+            s,
+            flags=re.IGNORECASE,
+        )
+
+        # 3. Parenthesized: (2h), (2.5 hrs), (30 mins)
+        for m in re.finditer(
+            r"\((?:@\s*)?(\d+(?:\.\d+)?)\s*(hours?|hrs?|hr|h|minutes?|mins?|min)\)",
+            s,
+            re.IGNORECASE,
+        ):
+            val = float(m.group(1))
+            unit = m.group(2).lower()
+            if unit.startswith("m"):
+                total += val / 60.0
+            else:
+                total += val
+        s = re.sub(
+            r"\((?:@\s*)?(\d+(?:\.\d+)?)\s*(hours?|hrs?|hr|h|minutes?|mins?|min)\)",
+            " ",
+            s,
+            flags=re.IGNORECASE,
+        )
+
+        # 4. Explicit hours: 2h, 2.5h, 3 hours, 1.5 hrs
+        for m in re.finditer(
+            r"\b(\d+(?:\.\d+)?)\s*(hours?|hrs?|hr|h)\b",
+            s,
+            re.IGNORECASE,
+        ):
+            total += float(m.group(1))
+        s = re.sub(
+            r"\b(\d+(?:\.\d+)?)\s*(hours?|hrs?|hr|h)\b",
+            " ",
+            s,
+            flags=re.IGNORECASE,
+        )
+
+        # 5. Explicit minutes: 30 mins, 45 minutes
+        for m in re.finditer(
+            r"\b(\d+(?:\.\d+)?)\s*(minutes?|mins?|min)\b",
+            s,
+            re.IGNORECASE,
+        ):
+            total += float(m.group(1)) / 60.0
+
+        return total
+
+    def _calculate_metrics(
+        self,
+        entries: List[Dict[str, str]],
+        project_progress: Optional[Dict[str, List[Dict[str, str]]]] = None,
+    ) -> Dict[str, Any]:
+        """Inspect journal entries and project progress to calculate metrics including project_hours."""
         project_hours: Dict[str, float] = {}
         project_mentions: Dict[str, int] = {}
         decisions: List[str] = []
         blockers: List[str] = []
+        unassigned_hours = 0.0
 
         if self.projects_dir.exists():
             project_names = [d.name for d in self.projects_dir.iterdir() if d.is_dir()]
         else:
             project_names = []
 
+        if project_progress:
+            for p in project_progress.keys():
+                if p not in project_names:
+                    project_names.append(p)
+
+        # 1. Parse hours from project progress entries
+        if project_progress:
+            for proj, prog_list in project_progress.items():
+                for item in prog_list:
+                    desc = item.get("description", "")
+                    h = self._extract_hours(desc)
+                    if h > 0:
+                        project_hours[proj] = project_hours.get(proj, 0.0) + h
+
+        # 2. Parse hours, mentions, decisions, blockers from journal entries
         for entry in entries:
-            content = entry["content"]
-            for h in re.findall(r"(\d+(?:\.\d+)?)\s*hours", content, re.IGNORECASE):
-                total_hours += float(h)
-            for name in project_names:
-                if name.lower() in content.lower():
-                    project_mentions[name] = project_mentions.get(name, 0) + 1
+            content = entry.get("content", "")
+            sections = re.split(r"(?m)^##\s+", content)
+            for sec in sections:
+                if not sec.strip():
+                    continue
+                matched_projects: List[str] = []
+                for name in project_names:
+                    if name.lower() in sec.lower():
+                        matched_projects.append(name)
+                        project_mentions[name] = project_mentions.get(name, 0) + 1
+
+                if not matched_projects:
+                    for wikilink in re.findall(r"\[\[([a-zA-Z0-9_\- ]+)\]\]", sec):
+                        if wikilink not in matched_projects:
+                            matched_projects.append(wikilink)
+                            project_mentions[wikilink] = project_mentions.get(wikilink, 0) + 1
+                    for tag in re.findall(r"#([a-zA-Z0-9_\-]+)", sec):
+                        if (
+                            tag.lower() not in ("todo", "done", "task", "note", "journal")
+                            and tag not in matched_projects
+                        ):
+                            matched_projects.append(tag)
+                            project_mentions[tag] = project_mentions.get(tag, 0) + 1
+
+                sec_hours = self._extract_hours(sec)
+                if sec_hours > 0:
+                    if matched_projects:
+                        split_h = sec_hours / len(matched_projects)
+                        for proj in matched_projects:
+                            project_hours[proj] = project_hours.get(proj, 0.0) + split_h
+                    else:
+                        unassigned_hours += sec_hours
+
             if re.search(r"(?:we|i|team)\s+(?:decided|decided to|chose to|switched to)", content, re.IGNORECASE):
-                decisions.append(entry["date"])
+                decisions.append(entry.get("date", ""))
             if re.search(r"(?:blocked|stuck|issue|problem)", content, re.IGNORECASE):
-                blockers.append(entry["date"])
+                blockers.append(entry.get("date", ""))
+
+        project_hours = {p: round(h, 1) for p, h in project_hours.items() if h > 0}
+        total_hours = round(sum(project_hours.values()) + unassigned_hours, 1)
 
         return {
-            "total_hours": round(total_hours, 1),
+            "total_hours": total_hours,
             "project_hours": project_hours,
             "project_mentions": project_mentions,
             "decision_count": len(decisions),
@@ -229,10 +364,17 @@ class WeeklyReviewGenerator:
             "entries_count": len(entries),
         }
 
+    def analyze(
+        self,
+        entries: List[Dict[str, str]],
+        project_progress: Optional[Dict[str, List[Dict[str, str]]]] = None,
+    ) -> Dict[str, object]:
+        return self._calculate_metrics(entries, project_progress)
+
     def build_review_data(self, date: Optional[datetime] = None) -> ReviewData:
         """Collect + analyze into a structured ReviewData."""
         monday, sunday = self.get_week_range(date)
-        week_str = monday.strftime("%Y-W%U")
+        week_str = monday.strftime("%Y-W%V")
         label = f"{monday.strftime('%Y-%m-%d')} to {sunday.strftime('%Y-%m-%d')}"
 
         journal_entries = self.collect_journal_entries(monday, sunday)
@@ -240,15 +382,30 @@ class WeeklyReviewGenerator:
         completed_tasks = self.collect_completed_tasks(monday, sunday)
         new_tasks = self.collect_new_tasks(monday, sunday)
         learning = self.collect_learning(monday, sunday)
-        analysis = self.analyze(journal_entries)
+        analysis = self._calculate_metrics(journal_entries, project_progress)
 
-        decisions = [e["date"] for e in journal_entries
-                     if re.search(r"(?:we|i|team)\s+(?:decided|decided to|chose to|switched to)",
-                                  e["content"], re.IGNORECASE)]
-        blockers = [e["date"] for e in journal_entries
-                    if re.search(r"(?:blocked|stuck|issue|problem)", e["content"], re.IGNORECASE)]
+        decisions = [
+            e["date"]
+            for e in journal_entries
+            if re.search(
+                r"(?:we|i|team)\s+(?:decided|decided to|chose to|switched to)",
+                e.get("content", ""),
+                re.IGNORECASE,
+            )
+        ]
+        blockers = [
+            e["date"]
+            for e in journal_entries
+            if re.search(r"(?:blocked|stuck|issue|problem)", e.get("content", ""), re.IGNORECASE)
+        ]
 
-        projects_touched = sorted(set(list(project_progress.keys()) + list(analysis["project_mentions"].keys())))
+        projects_touched = sorted(
+            set(
+                list(project_progress.keys())
+                + list(analysis["project_mentions"].keys())
+                + list(analysis["project_hours"].keys())
+            )
+        )
 
         metrics = dict(analysis)  # type: ignore[arg-type]
         metrics["projects_active"] = len(project_progress)
@@ -370,7 +527,12 @@ class WeeklyReviewGenerator:
         )
         return review
 
-    # ---- GENERATE (orchestration + persistence) ----
+    # ---- SAVE & GENERATE ----
+
+    def save_review(self, review_file: Path, content: str) -> Path:
+        """Save review content using VaultManager to ensure atomic writes and git tracking."""
+        self.vault.write_file(review_file, content, message=f"Weekly review: {review_file.stem}")
+        return review_file
 
     def generate(self, date: Optional[datetime] = None) -> Path:
         """Build structured data, render, and write the review file.
@@ -383,9 +545,9 @@ class WeeklyReviewGenerator:
         document = self.render(data)
         self.reviews_dir.mkdir(parents=True, exist_ok=True)
         monday, _ = self.get_week_range(date)
-        week_str = monday.strftime("%Y-W%U")
+        week_str = monday.strftime("%Y-W%V")
         output_file = self.reviews_dir / f"{week_str}.md"
-        output_file.write_text(document, encoding="utf-8")
+        self.save_review(output_file, document)
         return output_file
 
 
@@ -404,5 +566,19 @@ def generate_review(date: Optional[datetime] = None) -> Path:
     return get_review_generator().generate(date)
 
 
+def save_review(review_file: Path, content: str) -> Path:
+    return get_review_generator().save_review(review_file, content)
+
+
 def build_review_data(date: Optional[datetime] = None) -> ReviewData:
     return get_review_generator().build_review_data(date)
+
+
+def _calculate_metrics(
+    entries: List[Dict[str, str]],
+    project_progress: Optional[Dict[str, List[Dict[str, str]]]] = None,
+    vault: Optional[VaultManager] = None,
+) -> Dict[str, Any]:
+    generator = WeeklyReviewGenerator(vault) if vault else get_review_generator()
+    return generator._calculate_metrics(entries, project_progress)
+

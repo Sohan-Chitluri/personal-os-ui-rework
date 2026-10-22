@@ -1,0 +1,46 @@
+# Personal OS — Worker process definition (M1-D)
+#
+# One worker instance runs this unit. The worker is a long-running asyncio
+# loop (personal_os.services.worker.CaptureWorker). It has NO listening port:
+# health is tracked by a periodic CloudWatch heartbeat metric (see
+# deploy/scripts/worker_heartbeat.py) and an alarm on metric staleness.
+#
+# Shutdown: SIGTERM → the runner cancels the loop between messages so the
+# current unit of work finishes and the message is acked or requeued; the SQS
+# visibility timeout is the safety net if the instance dies mid-message.
+
+[Unit]
+Description=Personal OS Capture Worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=app
+Group=app
+WorkingDirectory=/opt/personal-os
+EnvironmentFile=/etc/personal-os/env
+
+ExecStart=/opt/personal-os/.venv/bin/python -m personal_os.deploy_worker
+
+# Graceful shutdown: SIGTERM lets the loop finish the in-flight message
+# before exiting. If the host is being replaced the SQS visibility timeout
+# (900s) redelivers anything still unacked.
+KillSignal=SIGTERM
+TimeoutStopSec=120
+
+Restart=on-failure
+RestartSec=10
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=personal-os-worker
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/personal-os
+
+[Install]
+WantedBy=multi-user.target

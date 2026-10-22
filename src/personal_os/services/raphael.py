@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from personal_os.config import Settings
 from personal_os.db.models import Conversation, ConversationMessage, Task
+from personal_os.services.github import GitHubService
 from personal_os.services.hermes import HermesClient, HermesError, strip_hermes_reasoning
 from personal_os.services.interfaces import (
     ProjectService,
@@ -21,6 +22,7 @@ from personal_os.services.interfaces import (
     ServiceNotFound,
     TaskService,
 )
+from personal_os.services.session_finalizer import SessionFinalizerService
 from personal_os.services.tasks import ProjectServiceImpl, TaskServiceImpl
 
 log = logging.getLogger(__name__)
@@ -49,15 +51,44 @@ def _parse_due_date(raw_due: Any, ref_time: datetime | None = None) -> datetime 
     elif ref_time.tzinfo is None:
         ref_time = ref_time.replace(tzinfo=UTC)
 
-    low = val.lower()
-    if low == "today":
+    # Strip soft/hard deadline qualifiers and common prepositions
+    clean_val = re.sub(r"(?i)\s*[\(,–-]?\s*(?:soft|hard)\s+deadline\s*[\)]?", "", val).strip()
+    clean_val = (
+        re.sub(r"(?i)^(?:by|on|before|due(?:\s+date)?(?:\s*:)?)\s+", "", clean_val)
+        .strip()
+        .rstrip(".! ")
+    )
+
+    low = clean_val.lower()
+    if low in ("today", "tonight"):
         return ref_time.replace(hour=23, minute=59, second=59, microsecond=0)
     if low == "tomorrow":
         next_day = ref_time + timedelta(days=1)
         return next_day.replace(hour=23, minute=59, second=59, microsecond=0)
+    if low == "next week":
+        next_week = ref_time + timedelta(days=7)
+        return next_week.replace(hour=23, minute=59, second=59, microsecond=0)
+
+    weekdays = (
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+    )
+    if low in weekdays:
+        target_wd = weekdays.index(low)
+        current_wd = ref_time.weekday()
+        days_ahead = (target_wd - current_wd) % 7
+        if days_ahead == 0:
+            days_ahead = 7
+        target_day = ref_time + timedelta(days=days_ahead)
+        return target_day.replace(hour=23, minute=59, second=59, microsecond=0)
 
     # Try ISO formats
-    iso_val = val.replace("Z", "+00:00")
+    iso_val = clean_val.replace("Z", "+00:00")
     try:
         dt = datetime.fromisoformat(iso_val)
         if dt.tzinfo is None:
@@ -68,7 +99,7 @@ def _parse_due_date(raw_due: Any, ref_time: datetime | None = None) -> datetime 
 
     for fmt in ("%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y", "%m/%d/%Y"):
         try:
-            return datetime.strptime(val, fmt).replace(
+            return datetime.strptime(clean_val, fmt).replace(
                 hour=23, minute=59, second=59, tzinfo=UTC
             )
         except ValueError:
@@ -88,6 +119,8 @@ class RaphaelService:
         task_service: TaskService | None = None,
         project_service: ProjectService | None = None,
         assistant_engine: Any = None,
+        github_service: GitHubService | None = None,
+        session_finalizer: SessionFinalizerService | None = None,
     ) -> None:
         self.session = session
         self.hermes = hermes_client
@@ -95,6 +128,76 @@ class RaphaelService:
         self.task_service = task_service or TaskServiceImpl(session)
         self.project_service = project_service or ProjectServiceImpl(session)
         self.assistant_engine = assistant_engine
+        self.github_service = github_service or GitHubService(session, settings)
+        self.session_finalizer = session_finalizer or SessionFinalizerService(session, settings)
+
+    async def get_or_create_active_conversation(self, owner_id: str) -> Conversation:
+        """Retrieve the single active conversation, finalizing to Diary if inactive >= 60 minutes."""
+        cutoff = datetime.now(UTC) - timedelta(minutes=60)
+        stmt = (
+            select(Conversation)
+            .where(Conversation.owner_id == owner_id)
+            .order_by(Conversation.created_at.desc())
+            .limit(1)
+        )
+        res = await self.session.execute(stmt)
+        latest = res.scalar_one_or_none()
+
+        if latest is not None:
+            if latest.summary_status == "summarized":
+                return await self.create_conversation(owner_id)
+            elif latest.last_activity_at <= cutoff:
+                # Inactive for >= 60 minutes: auto-summarize to Diary
+                try:
+                    await self.session_finalizer.finalize_conversation(latest.id, force=True)
+                except Exception as exc:
+                    log.warning(
+                        "Could not auto-finalize inactive conversation %s: %s", latest.id, exc
+                    )
+                return await self.create_conversation(owner_id)
+            else:
+                return latest
+
+        return await self.create_conversation(owner_id)
+
+    async def reset_active_conversation(self, owner_id: str) -> Conversation:
+        """Explicitly finalize any active conversation to Diary and create a fresh one."""
+        stmt = (
+            select(Conversation)
+            .where(
+                Conversation.owner_id == owner_id,
+                Conversation.summary_status.in_(["active", "pending_summary"]),
+            )
+            .order_by(Conversation.created_at.desc())
+            .limit(1)
+        )
+        res = await self.session.execute(stmt)
+        latest = res.scalar_one_or_none()
+        if latest is not None:
+            try:
+                await self.session_finalizer.finalize_conversation(latest.id, force=True)
+            except Exception as exc:
+                log.warning("Could not finalize conversation %s on reset: %s", latest.id, exc)
+
+        return await self.create_conversation(owner_id)
+
+    async def finalize_conversation(self, conversation_id: str, force: bool = True) -> Any:
+        """Summarize conversation into Diary."""
+        return await self.session_finalizer.finalize_conversation(conversation_id, force=force)
+
+    async def search_session_memories(
+        self, owner_id: str, query: str = "", limit: int = 5
+    ) -> list[dict[str, Any]]:
+        """Search Diary summaries from past Raphael sessions."""
+        return await self.session_finalizer.search_session_memories(
+            owner_id, query=query, limit=limit
+        )
+
+    async def delete_session_memory(self, owner_id: str, capture_id: str) -> bool:
+        """Soft-delete a Diary session summary."""
+        return await self.session_finalizer.delete_session_memory(
+            owner_id=owner_id, capture_id=capture_id
+        )
 
     async def list_conversations(
         self,
@@ -224,12 +327,52 @@ class RaphaelService:
             await self.session.commit()
             await self.session.refresh(user_msg)
 
-        use_bedrock = (
-            self.assistant_engine is not None
-            or (
-                self.settings.assistant_backend == "bedrock"
-                and not self.hermes.__class__.__name__.startswith("Mock")
-            )
+        # Update conversation activity timestamp and ensure active
+        conversation.last_activity_at = datetime.now(UTC)
+        if conversation.summary_status != "active":
+            conversation.summary_status = "active"
+        self.session.add(conversation)
+
+        # Cross-session Diary recall check
+        memory_context = ""
+        recall_keywords = (
+            "earlier",
+            "previous",
+            "yesterday",
+            "decided",
+            "remember",
+            "recall",
+            "last session",
+            "prior meeting",
+            "before",
+        )
+        if any(kw in stripped_content.lower() for kw in recall_keywords):
+            try:
+                memories = await self.session_finalizer.search_session_memories(
+                    owner_id=owner_id,
+                    query=stripped_content,
+                    limit=2,
+                )
+                if memories:
+                    mem_lines = ["[Diary Memory Context from past sessions:"]
+                    for m in memories:
+                        mem_lines.append(f"- Session '{m['title']}':")
+                        if m.get("decisions"):
+                            mem_lines.append(f"  Decisions: {'; '.join(m['decisions'][:3])}")
+                        if m.get("next_steps"):
+                            mem_lines.append(f"  Next steps: {'; '.join(m['next_steps'][:3])}")
+                    mem_lines.append("]")
+                    memory_context = "\n".join(mem_lines) + "\n\n"
+            except Exception as exc:
+                log.debug("Diary recall lookup skipped: %s", exc)
+
+        prompt_to_send = (
+            f"{memory_context}{stripped_content}" if memory_context else stripped_content
+        )
+
+        use_bedrock = self.assistant_engine is not None or (
+            self.settings.assistant_backend == "bedrock"
+            and not self.hermes.__class__.__name__.startswith("Mock")
         )
 
         if use_bedrock:
@@ -254,7 +397,7 @@ class RaphaelService:
             turn_result = await self.assistant_engine.run_turn(
                 owner_id=owner_id,
                 conversation_history=history,
-                new_user_message=stripped_content,
+                new_user_message=prompt_to_send,
                 task_service=self.task_service,
                 project_service=self.project_service,
             )
@@ -267,7 +410,7 @@ class RaphaelService:
 
             try:
                 response = await self.hermes.send_message(
-                    prompt=stripped_content,
+                    prompt=prompt_to_send,
                     session_id=conversation.hermes_session_id,
                     session_name=session_name,
                     skill=skill,
@@ -344,9 +487,7 @@ class RaphaelService:
                 return p.id, p.name, None
 
         # 2. Exact case-insensitive name match
-        exact_matches = [
-            p for p in user_projects if p.name.strip().lower() == proj_input.lower()
-        ]
+        exact_matches = [p for p in user_projects if p.name.strip().lower() == proj_input.lower()]
         if len(exact_matches) == 1:
             return exact_matches[0].id, exact_matches[0].name, None
         elif len(exact_matches) > 1:
@@ -395,6 +536,24 @@ class RaphaelService:
         raw_due = action_data.get("soft_deadline") or action_data.get("due_date")
         raw_hard = action_data.get("hard_deadline")
         raw_proj = action_data.get("project")
+        raw_desc = action_data.get("description")
+
+        description: str | None = None
+        if raw_desc and isinstance(raw_desc, str):
+            desc_val = raw_desc.strip()
+            if desc_val.lower() not in ("none", "null", "unset", ""):
+                description = desc_val
+
+        # Preserve soft-deadline qualification in description if indicated and not already present
+        is_soft = (
+            "soft" in str(raw_due or "").lower()
+            or "soft" in str(action_data.get("soft_deadline") or "").lower()
+        )
+        if is_soft:
+            if not description:
+                description = "Soft deadline."
+            elif "soft deadline" not in description.lower():
+                description = f"{description} Soft deadline."
 
         # 1. Idempotency check: Reuse existing task if this message ID was already processed
         existing_task = await self._find_existing_task(owner_id, client_message_id)
@@ -411,9 +570,7 @@ class RaphaelService:
             )
             hard_deadline = getattr(existing_task, "hard_deadline", None)
             hard_str = (
-                hard_deadline.strftime("%Y-%m-%d %H:%M UTC")
-                if hard_deadline is not None
-                else None
+                hard_deadline.strftime("%Y-%m-%d %H:%M UTC") if hard_deadline is not None else None
             )
             proj_str = "Assigned" if existing_task.project_id else "None"
             lines = [
@@ -423,12 +580,12 @@ class RaphaelService:
             if hard_str:
                 lines.append(f"- Hard deadline: {hard_str}")
             lines.append(f"- Project: {proj_str}")
+            if existing_task.description:
+                lines.append(f"- Description: {existing_task.description}")
             return "\n".join(lines)
 
         # 2. Resolve project (enforcing owner-scoping and unambiguous matching)
-        project_id, project_name, project_note = await self._resolve_project(
-            owner_id, raw_proj
-        )
+        project_id, project_name, project_note = await self._resolve_project(owner_id, raw_proj)
 
         # 3. Parse deadline without inventing dates
         due_date = _parse_due_date(raw_due)
@@ -441,6 +598,7 @@ class RaphaelService:
                 task = await self.task_service.create_task(
                     owner_id=owner_id,
                     title=title,
+                    description=description,
                     project_id=project_id,
                     due_date=due_date,
                     hard_deadline=hard_deadline,
@@ -483,9 +641,7 @@ class RaphaelService:
         due_str = task.due_date.strftime("%Y-%m-%d %H:%M UTC") if task.due_date else "None"
         hard_deadline = getattr(task, "hard_deadline", None)
         hard_str = (
-            hard_deadline.strftime("%Y-%m-%d %H:%M UTC")
-            if hard_deadline is not None
-            else None
+            hard_deadline.strftime("%Y-%m-%d %H:%M UTC") if hard_deadline is not None else None
         )
         proj_str = project_name or "None"
         lines = [
@@ -495,6 +651,8 @@ class RaphaelService:
         if hard_str:
             lines.append(f"- Hard deadline: {hard_str}")
         lines.append(f"- Project: {proj_str}")
+        if task.description:
+            lines.append(f"- Description: {task.description}")
         if project_note:
             lines.append(f"- Note: {project_note}")
         return "\n".join(lines)
@@ -526,9 +684,7 @@ class RaphaelService:
             log.error("Failed to list projects for owner %s: %s", owner_id, exc, exc_info=True)
             return f"Failed to check existing projects: {exc}. No project was created."
 
-        exact_matches = [
-            p for p in user_projects if p.name.strip().lower() == name.lower()
-        ]
+        exact_matches = [p for p in user_projects if p.name.strip().lower() == name.lower()]
         if exact_matches:
             return (
                 f"A project named **{exact_matches[0].name}** already exists. "
@@ -552,7 +708,69 @@ class RaphaelService:
         lines = [f"I have created the project **{project.name}**."]
         if project.description:
             lines.append(f"- Description: {project.description}")
+
+        # Check for matching GitHub repositories if connected
+        try:
+            auth_info = await self.github_service.get_auth_status(owner_id)
+            if auth_info.get("connected"):
+                matches = await self.github_service.search_repositories(
+                    owner_id, query=project.name
+                )
+                if len(matches) == 1:
+                    m = matches[0]
+                    lines.append(
+                        f"\nI found repository **{m['full_name']}**. "
+                        "Would you like to connect this repository to the project?"
+                    )
+                elif len(matches) > 1:
+                    repo_names = ", ".join(f"`{m['full_name']}`" for m in matches[:3])
+                    lines.append(
+                        f"\nI found multiple matching repositories ({repo_names}). "
+                        "Which one would you like to connect?"
+                    )
+        except Exception as exc:
+            log.debug("GitHub discovery check during project creation skipped: %s", exc)
+
         return "\n".join(lines)
+
+    async def _execute_connect_repository(
+        self,
+        owner_id: str,
+        conversation_id: str,
+        action_data: dict[str, Any],
+        client_message_id: str | None,
+    ) -> str:
+        """Execute repository-to-project association with owner validation."""
+        raw_proj = action_data.get("project")
+        raw_repo = action_data.get("repository")
+
+        if not raw_proj:
+            return "Could not connect repository: project name was empty."
+        if not raw_repo:
+            return "Could not connect repository: repository name was empty."
+
+        project_id, project_name, project_note = await self._resolve_project(owner_id, raw_proj)
+        if not project_id:
+            return project_note or f"Could not find project '{raw_proj}'."
+
+        try:
+            assoc = await self.github_service.associate_project_repository(
+                owner_id=owner_id,
+                project_id=project_id,
+                repo_full_name=str(raw_repo).strip(),
+            )
+            brief = assoc.project_brief or {}
+            purpose = brief.get("purpose") or "Documentation brief and milestones synced."
+            return (
+                f"Connected repository **{assoc.full_name}** to project **{project_name}**.\n"
+                f"- Default branch: `{assoc.default_branch}`\n"
+                f"- Brief: {purpose}"
+            )
+        except ServiceNotFound:
+            return f"Project '{raw_proj}' not found."
+        except Exception as exc:
+            log.warning("Failed to connect repository: %s", exc)
+            return f"Failed to connect repository: {exc}."
 
     async def _process_task_actions(
         self,
@@ -570,7 +788,7 @@ class RaphaelService:
         if not matches:
             plain_pattern = (
                 r'(?:Task created|Added task|Created task):\s*["\']?([^"\'\n]+?)["\']?'
-                r'(?:\s+due\s+([^.\n]+))?[.]?$'
+                r"(?:\s+due\s+([^.\n]+))?[.]?$"
             )
             plain_match = re.search(plain_pattern, sanitized_reply.strip(), re.IGNORECASE)
             if plain_match:
@@ -591,7 +809,7 @@ class RaphaelService:
 
             plain_project_pattern = (
                 r'(?:Project created|Added project|Created project):\s*["\']?([^"\'\n]+?)["\']?'
-                r'(?:\s*[-–:]\s*([^.\n]+))?[.]?$'
+                r"(?:\s*[-–:]\s*([^.\n]+))?[.]?$"
             )
             plain_proj_match = re.search(
                 plain_project_pattern, sanitized_reply.strip(), re.IGNORECASE
@@ -648,6 +866,15 @@ class RaphaelService:
                     executed = True
                 elif action_type == "create_project":
                     confirmation = await self._execute_create_project(
+                        owner_id=owner_id,
+                        conversation_id=conversation_id,
+                        action_data=action_data,
+                        client_message_id=client_message_id,
+                    )
+                    updated_reply = updated_reply.replace(raw_match, confirmation).strip()
+                    executed = True
+                elif action_type == "connect_repository":
+                    confirmation = await self._execute_connect_repository(
                         owner_id=owner_id,
                         conversation_id=conversation_id,
                         action_data=action_data,

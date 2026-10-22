@@ -10,6 +10,7 @@ import type {
   TaskListResponse,
   TaskUpdatePayload,
 } from "./task-types";
+import { getCognitoAccessToken, handleUnauthorized } from "./auth";
 
 export class TaskApiError extends Error {
   status: number;
@@ -56,7 +57,9 @@ export class TaskApiClient {
 
   constructor(config?: TaskApiConfig) {
     this.baseUrl = config?.baseUrl || DEFAULT_BASE_URL;
-    this.getAuthToken = config?.getAuthToken || (() => "dev-user");
+    // Authentication is supplied by the browser's configured auth session.
+    // Never synthesize a user identity in the API client.
+    this.getAuthToken = config?.getAuthToken || getCognitoAccessToken;
   }
 
   private getHeaders(expectedRevision?: number): HeadersInit {
@@ -82,6 +85,9 @@ export class TaskApiClient {
     }
 
     if (!res.ok) {
+      if (res.status === 401) {
+        handleUnauthorized();
+      }
       let problem: ProblemDetail | undefined;
       let text = "";
       try {

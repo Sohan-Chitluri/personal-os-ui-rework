@@ -10,15 +10,25 @@ import {
   Sun,
   X,
 } from "lucide-react";
-import type { ButtonHTMLAttributes, ReactNode } from "react";
+import { useState, useEffect, type ButtonHTMLAttributes, type ReactNode } from "react";
 import {
   dailyCompletions,
   deadline,
+  calcDueInDays,
+  formatHardDeadlineLocal,
+  getTaskStripeClass,
   projectById,
   type Mood,
   type Task,
   type Tone,
 } from "@/lib/blockday-data";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
 import { dayLabel, morph, useBlockday } from "@/lib/blockday-store";
 import { beginCognitoLogout, getCognitoAccessToken, isCognitoConfigured } from "@/lib/auth";
 
@@ -92,9 +102,104 @@ export function StatBlock({
   );
 }
 
-export function DeadlineStrip({ dueIn }: { dueIn: number | null }) {
-  const d = deadline(dueIn);
-  return <span aria-hidden className={`deadline-strip deadline-${d.kind}`} />;
+export function DeadlineStrip({
+  task,
+  dueIn,
+}: {
+  task?: Task;
+  dueIn?: number | null;
+}) {
+  const stripeClass = task
+    ? getTaskStripeClass(task)
+    : dueIn !== undefined && dueIn !== null
+      ? `deadline-${deadline(dueIn).kind}`
+      : "deadline-none";
+  return <span aria-hidden className={`deadline-strip ${stripeClass}`} />;
+}
+
+export function DeadlineBadge({ task }: { task: Task }) {
+  const [flipped, setFlipped] = useState(false);
+
+  const hasHard = Boolean(task.hardDeadline);
+  const hasSoft = Boolean(task.softDeadline || task.dueDate);
+  const hasBoth = hasSoft && hasHard;
+
+  // Compute countdown for soft deadline
+  const softDays =
+    task.softDueIn ??
+    (task.softDeadline || task.dueDate
+      ? calcDueInDays(task.softDeadline ?? task.dueDate)
+      : task.dueIn);
+  const softInfo = deadline(softDays);
+
+  // Compute countdown for hard deadline
+  const hardDays =
+    task.hardDueIn ??
+    (task.hardDeadline ? calcDueInDays(task.hardDeadline) : null);
+  const hardInfo = deadline(hardDays);
+
+  // If both exist: 3D flip card
+  if (hasBoth) {
+    const formattedHard = formatHardDeadlineLocal(task.hardDeadline!);
+    return (
+      <div
+        className={`deadline-badge-wrapper has-flip ${flipped ? "is-flipped" : ""}`}
+        tabIndex={0}
+        role="button"
+        aria-label={`Soft deadline: ${softInfo.label}. Hard deadline: ${formattedHard}. Tap or focus to toggle.`}
+        onClick={(e) => {
+          e.stopPropagation();
+          setFlipped((f) => !f);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            e.stopPropagation();
+            setFlipped((f) => !f);
+          }
+        }}
+        onPointerLeave={() => {
+          if (flipped) setFlipped(false);
+        }}
+      >
+        <div className="deadline-card-inner">
+          <span
+            className={`deadline-card-front deadline-label deadline-label-${softInfo.kind}`}
+          >
+            {softInfo.label}
+          </span>
+          <span className="deadline-card-back deadline-label deadline-label-hard">
+            HARD: {formattedHard}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  // If only hard deadline exists: no flip, shows hard deadline countdown clearly
+  if (hasHard) {
+    return (
+      <span className="deadline-label deadline-label-hard">
+        HARD · {hardInfo.label}
+      </span>
+    );
+  }
+
+  // If only soft deadline exists: default countdown
+  if (hasSoft) {
+    return (
+      <span className={`deadline-label deadline-label-${softInfo.kind}`}>
+        {softInfo.label}
+      </span>
+    );
+  }
+
+  // Neither exists
+  return (
+    <span className={`deadline-label deadline-label-${softInfo.kind}`}>
+      {softInfo.label}
+    </span>
+  );
 }
 
 export interface TaskRowProps {
@@ -115,14 +220,13 @@ export function TaskRow({
   className = "",
 }: TaskRowProps) {
   const project = projectById(task.projectId);
-  const d = deadline(task.dueIn);
   return (
     <article
       style={{ viewTransitionName: `task-${task.id}` }}
       onClick={onSelect}
       className={`task-row ${task.done ? "task-done" : ""} ${isSelected ? "task-selected border-l-4 border-grid font-bold" : ""} ${compact ? "min-h-0 py-2" : ""} ${onSelect ? "cursor-pointer" : ""} ${className}`}
     >
-      <DeadlineStrip dueIn={task.dueIn} />
+      <DeadlineStrip task={task} />
       {onToggle && (
         <button
           type="button"
@@ -178,9 +282,282 @@ export function TaskRow({
         </div>
       </div>
       {!task.done && !compact && (
-        <span className={`deadline-label deadline-label-${d.kind}`}>{d.label}</span>
+        <DeadlineBadge task={task} />
       )}
     </article>
+  );
+}
+
+function toDateTimeLocal(iso: string | null | undefined): string {
+  if (!iso) return "";
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const Y = d.getFullYear();
+    const M = pad(d.getMonth() + 1);
+    const D = pad(d.getDate());
+    const h = pad(d.getHours());
+    const m = pad(d.getMinutes());
+    return `${Y}-${M}-${D}T${h}:${m}`;
+  } catch {
+    return "";
+  }
+}
+
+function fromDateTimeLocal(val: string): string | null {
+  if (!val.trim()) return null;
+  try {
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return null;
+    return d.toISOString();
+  } catch {
+    return null;
+  }
+}
+
+export interface TaskEditFields {
+  title: string;
+  description?: string | null | undefined;
+  projectId?: string | undefined;
+  softDeadline?: string | null | undefined;
+  hardDeadline?: string | null | undefined;
+  estimate?: number | undefined;
+  mood?: Mood | undefined;
+  frog?: boolean | undefined;
+}
+
+export function TaskEditDialog({
+  open,
+  task,
+  onClose,
+  onSave,
+}: {
+  open: boolean;
+  task?: Task | null;
+  onClose: () => void;
+  onSave: (fields: TaskEditFields) => Promise<void> | void;
+}) {
+  const { projects } = useBlockday();
+  const [title, setTitle] = useState(task?.title ?? "");
+  const [description, setDescription] = useState(task?.description ?? "");
+  const [projectId, setProjectId] = useState(task?.projectId ?? "unassigned");
+  const [softDeadline, setSoftDeadline] = useState(
+    toDateTimeLocal(task?.softDeadline ?? task?.dueDate)
+  );
+  const [hardDeadline, setHardDeadline] = useState(
+    toDateTimeLocal(task?.hardDeadline)
+  );
+  const [estimate, setEstimate] = useState(task?.estimate ?? 15);
+  const [mood, setMood] = useState<Mood>(task?.mood ?? "Clear");
+  const [frog, setFrog] = useState(Boolean(task?.frog));
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (task) {
+      setTitle(task.title);
+      setDescription(task.description ?? "");
+      setProjectId(task.projectId || "unassigned");
+      setSoftDeadline(toDateTimeLocal(task.softDeadline ?? task.dueDate));
+      setHardDeadline(toDateTimeLocal(task.hardDeadline));
+      setEstimate(task.estimate ?? 15);
+      setMood(task.mood ?? "Clear");
+      setFrog(Boolean(task.frog));
+    } else {
+      setTitle("");
+      setDescription("");
+      setProjectId("unassigned");
+      setSoftDeadline("");
+      setHardDeadline("");
+      setEstimate(15);
+      setMood("Clear");
+      setFrog(false);
+    }
+  }, [task, open]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!title.trim() || saving) return;
+    setSaving(true);
+    try {
+      await onSave({
+        title: title.trim(),
+        description: description.trim() || null,
+        projectId: projectId === "unassigned" ? undefined : projectId,
+        softDeadline: fromDateTimeLocal(softDeadline),
+        hardDeadline: fromDateTimeLocal(hardDeadline),
+        estimate,
+        mood,
+        frog,
+      });
+      onClose();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+      <DialogContent className="border-4 border-grid bg-canvas p-6 text-foreground shadow-2xl sm:max-w-md">
+        <DialogHeader>
+          <p className="section-label">{task ? "Edit Block" : "New Block"}</p>
+          <DialogTitle className="font-display text-2xl uppercase tracking-tight">
+            {task ? "Configure Task & Deadlines" : "Create Focused Block"}
+          </DialogTitle>
+        </DialogHeader>
+
+        <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+          <div>
+            <label className="block text-[9px] font-black uppercase tracking-[0.16em] text-muted-foreground">
+              Title
+            </label>
+            <input
+              required
+              aria-label="Task title"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              className="mt-1 w-full border-2 border-grid bg-transparent px-3 py-2 text-sm font-semibold outline-none focus:border-block-blue"
+              placeholder="What needs to happen?"
+            />
+          </div>
+
+          <div>
+            <label className="block text-[9px] font-black uppercase tracking-[0.16em] text-muted-foreground">
+              Description
+            </label>
+            <textarea
+              aria-label="Task description"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={2}
+              className="mt-1 w-full border-2 border-grid bg-transparent px-3 py-2 text-xs outline-none focus:border-block-blue"
+              placeholder="Notes, context, or links..."
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[9px] font-black uppercase tracking-[0.16em] text-muted-foreground">
+                Soft Deadline (Target)
+              </label>
+              <input
+                type="datetime-local"
+                aria-label="Soft deadline"
+                value={softDeadline}
+                onChange={(e) => setSoftDeadline(e.target.value)}
+                className="mt-1 w-full border-2 border-grid bg-transparent px-2.5 py-1.5 text-xs outline-none focus:border-block-blue"
+              />
+              <span className="mt-0.5 block text-[8px] text-muted-foreground">
+                Your intended target
+              </span>
+            </div>
+
+            <div>
+              <label className="block text-[9px] font-black uppercase tracking-[0.16em] text-block-red">
+                Hard Deadline (Fixed)
+              </label>
+              <input
+                type="datetime-local"
+                aria-label="Hard deadline"
+                value={hardDeadline}
+                onChange={(e) => setHardDeadline(e.target.value)}
+                className="mt-1 w-full border-2 border-grid bg-transparent px-2.5 py-1.5 text-xs outline-none focus:border-block-red"
+              />
+              <span className="mt-0.5 block text-[8px] text-muted-foreground">
+                External fixed constraint
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-[9px] font-black uppercase tracking-[0.16em] text-muted-foreground">
+                Project
+              </label>
+              <select
+                aria-label="Associated project"
+                value={projectId}
+                onChange={(e) => setProjectId(e.target.value)}
+                className="mt-1 w-full border-2 border-grid bg-transparent px-2 py-1.5 text-xs outline-none"
+              >
+                <option value="unassigned" className="bg-canvas text-foreground">
+                  Unassigned
+                </option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id} className="bg-canvas text-foreground">
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-[9px] font-black uppercase tracking-[0.16em] text-muted-foreground">
+                Duration (min)
+              </label>
+              <input
+                type="number"
+                min={5}
+                max={480}
+                step={5}
+                aria-label="Estimate in minutes"
+                value={estimate}
+                onChange={(e) => setEstimate(Number(e.target.value))}
+                className="mt-1 w-full border-2 border-grid bg-transparent px-2.5 py-1.5 text-xs outline-none"
+              />
+            </div>
+
+            <div>
+              <label className="block text-[9px] font-black uppercase tracking-[0.16em] text-muted-foreground">
+                Mood
+              </label>
+              <select
+                aria-label="Mood"
+                value={mood}
+                onChange={(e) => setMood(e.target.value as Mood)}
+                className="mt-1 w-full border-2 border-grid bg-transparent px-2 py-1.5 text-xs outline-none"
+              >
+                <option value="Clear" className="bg-canvas text-foreground">Clear</option>
+                <option value="Deep" className="bg-canvas text-foreground">Deep</option>
+                <option value="Creative" className="bg-canvas text-foreground">Creative</option>
+                <option value="Easy" className="bg-canvas text-foreground">Easy</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 pt-1">
+            <input
+              type="checkbox"
+              id="frog-checkbox"
+              checked={frog}
+              onChange={(e) => setFrog(e.target.checked)}
+              className="size-4 border-2 border-grid"
+            />
+            <label htmlFor="frog-checkbox" className="text-xs font-bold uppercase tracking-wider">
+              Priority: Eat the frog
+            </label>
+          </div>
+
+          <DialogFooter className="mt-6 flex justify-end gap-2 border-t-2 border-grid pt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={saving}
+              className="border-2 border-grid px-4 py-2 text-xs font-black uppercase tracking-wider hover:bg-muted"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={saving || !title.trim()}
+              className="border-2 border-grid bg-block-yellow px-5 py-2 text-xs font-black uppercase tracking-wider text-block-ink hover:opacity-90 disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Save Block"}
+            </button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

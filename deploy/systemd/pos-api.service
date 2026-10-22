@@ -1,0 +1,49 @@
+# Personal OS — API process definition (M1-D)
+#
+# One API instance runs this unit. Startup: uvicorn binds 0.0.0.0:8000 with
+# graceful shutdown on SIGTERM so the ALB can drain the connection. Health is
+# exposed on /health (liveness) and /api/v1/ready (readiness, checks DB).
+
+[Unit]
+Description=Personal OS FastAPI
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=app
+Group=app
+WorkingDirectory=/opt/personal-os
+EnvironmentFile=/etc/personal-os/env
+
+ExecStart=/opt/personal-os/.venv/bin/uvicorn personal_os.api.main:app \
+    --host 0.0.0.0 \
+    --port 8000 \
+    --workers 2 \
+    --proxy-headers \
+    --forwarded-allow-ips "*"
+
+# Graceful shutdown: SIGTERM then SIGKILL after the drain window.
+KillSignal=SIGTERM
+TimeoutStopSec=45
+
+# Restart policy: systemd restarts on unexpected failure; the ALB health
+# check removes a bad instance from rotation, and the ASG replaces it.
+Restart=on-failure
+RestartSec=5
+
+# Journald → CloudWatch agent forwards /var/log/journal. journald rate-limits
+# and rotates automatically. uvicorn access logs stay on for the API.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=personal-os-api
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/personal-os
+
+[Install]
+WantedBy=multi-user.target

@@ -2,6 +2,7 @@
 from __future__ import annotations
 import subprocess
 import asyncio
+import shlex
 from pathlib import Path
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
@@ -32,6 +33,9 @@ class SearchFilters:
     date_range: Optional[str] = None
     exclude: List[str] = None
     phrase: Optional[str] = None
+    path: Optional[str] = None
+    after: Optional[str] = None
+    before: Optional[str] = None
     
     def __post_init__(self):
         if self.terms is None:
@@ -75,27 +79,46 @@ class SearchEngine:
     def parse_query(self, query: str) -> SearchFilters:
         """Parse query string into structured filters."""
         filters = SearchFilters()
-        parts = query.split()
-        i = 0
+        try:
+            parts = shlex.split(query)
+        except ValueError:
+            parts = query.split()
         
+        i = 0
         while i < len(parts):
             part = parts[i]
             
             if part.startswith("project:"):
-                filters.project = part[8:]
+                filters.project = part[8:].strip('"\'')
             elif part.startswith("type:"):
-                filters.file_type = part[5:]
+                filters.file_type = part[5:].strip('"\'')
             elif part.startswith("tag:") or part.startswith("#"):
                 tag = part[4:] if part.startswith("tag:") else part[1:]
-                filters.tags.append(tag)
+                filters.tags.append(tag.strip('"\''))
+            elif part.startswith("path:"):
+                filters.path = part[5:].strip('"\'')
+            elif part.startswith("after:"):
+                filters.after = part[6:].strip('"\'')
+            elif part.startswith("before:"):
+                filters.before = part[7:].strip('"\'')
             elif part.startswith("date:"):
-                filters.date_range = part[5:]
+                filters.date_range = part[5:].strip('"\'')
             elif part.startswith("-"):
-                filters.exclude.append(part[1:])
+                filters.exclude.append(part[1:].strip('"\''))
             elif part.upper() in ["AND", "OR"]:
                 pass  # Ignore boolean operators for now
-            elif part.startswith('"') and part.endswith('"'):
-                filters.phrase = part[1:-1]
+            elif (
+                (part.startswith('"') and part.endswith('"'))
+                or (part.startswith("'") and part.endswith("'"))
+                or " " in part
+                or f'"{part}"' in query
+                or f"'{part}'" in query
+            ):
+                cleaned = part.strip('"\'')
+                if filters.phrase is None:
+                    filters.phrase = cleaned
+                else:
+                    filters.terms.append(cleaned)
             else:
                 filters.terms.append(part)
             
@@ -129,6 +152,10 @@ class SearchEngine:
         # directory (rg globs without leading ** only match basenames).
         if filters.project:
             cmd.extend(["-g", f"**/*{filters.project}*/**", "-g", f"**/*{filters.project}*"])
+
+        # Path filter — scope to specific path substring
+        if filters.path:
+            cmd.extend(["-g", f"**/*{filters.path}*/**", "-g", f"**/*{filters.path}*"])
         
         # File type filter
         if filters.file_type and filters.file_type in self.TYPE_MAP:
@@ -188,6 +215,12 @@ class SearchEngine:
             # Post-filter date range
             if filters.date_range and not self._matches_date_range(rel_path, filters.date_range):
                 continue
+
+            if filters.after and not self._matches_after(rel_path, filters.after):
+                continue
+
+            if filters.before and not self._matches_before(rel_path, filters.before):
+                continue
             
             results.append(SearchResult(
                 file=str(rel_path),
@@ -198,20 +231,50 @@ class SearchEngine:
         
         return results
     
-    def _matches_date_range(self, path: Path, date_range: str) -> bool:
-        """Check if file matches date range."""
-        # Check journal date format
-        if "Journal" in str(path):
-            match = re.search(r'(\d{4}-\d{2}-\d{2})', str(path))
+    def _get_file_date(self, path: Path | str) -> Optional[datetime.date]:
+        """Get date for file from journal title or mtime, resolved against vault root."""
+        p = Path(path)
+        if "Journal" in str(p):
+            match = re.search(r'(\d{4}-\d{2}-\d{2})', str(p))
             if match:
-                file_date = datetime.strptime(match.group(1), "%Y-%m-%d").date()
-                return self._check_date_range(file_date, date_range)
+                try:
+                    return datetime.strptime(match.group(1), "%Y-%m-%d").date()
+                except ValueError:
+                    pass
         
-        # Fallback to mtime
         try:
-            mtime = datetime.fromtimestamp(path.stat().st_mtime).date()
-            return self._check_date_range(mtime, date_range)
+            full_path = p if p.is_absolute() else (self.vault.config.root / p)
+            return datetime.fromtimestamp(full_path.stat().st_mtime).date()
         except Exception:
+            return None
+
+    def _matches_date_range(self, path: Path | str, date_range: str) -> bool:
+        """Check if file matches date range."""
+        file_date = self._get_file_date(path)
+        if file_date is None:
+            return True
+        return self._check_date_range(file_date, date_range)
+
+    def _matches_after(self, path: Path | str, after_str: str) -> bool:
+        """Check if file date is on or after after_str (YYYY-MM-DD)."""
+        file_date = self._get_file_date(path)
+        if file_date is None:
+            return True
+        try:
+            target = datetime.strptime(after_str, "%Y-%m-%d").date()
+            return file_date >= target
+        except ValueError:
+            return True
+
+    def _matches_before(self, path: Path | str, before_str: str) -> bool:
+        """Check if file date is on or before before_str (YYYY-MM-DD)."""
+        file_date = self._get_file_date(path)
+        if file_date is None:
+            return True
+        try:
+            target = datetime.strptime(before_str, "%Y-%m-%d").date()
+            return file_date <= target
+        except ValueError:
             return True
     
     def _check_date_range(self, file_date: datetime.date, date_range: str) -> bool:
@@ -253,12 +316,24 @@ class SearchEngine:
             # Project filter
             if filters.project and filters.project.lower() not in file_str:
                 continue
+
+            # Path filter
+            if filters.path and filters.path.lower() not in file_str:
+                continue
             
             # File type filter
             if filters.file_type and filters.file_type in self.TYPE_MAP:
                 pattern = self.TYPE_MAP[filters.file_type].replace("*", "")
                 if pattern not in str(md_file):
                     continue
+
+            # Date filter
+            if filters.date_range and not self._matches_date_range(md_file, filters.date_range):
+                continue
+            if filters.after and not self._matches_after(md_file, filters.after):
+                continue
+            if filters.before and not self._matches_before(md_file, filters.before):
+                continue
             
             try:
                 content = md_file.read_text(encoding="utf-8")

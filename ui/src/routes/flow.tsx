@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { Check, ChevronLeft, ChevronRight, Clock, Play, RotateCcw } from "lucide-react";
 import { useState } from "react";
 import { DemoModeBanner, TaskConflictBanner, TaskErrorBanner, toneBg } from "@/components/blockday-ui";
-import { historicalDays, projectById, type Task } from "@/lib/blockday-data";
+import { historicalDays, type Task } from "@/lib/blockday-data";
 import { formatClock, morph, useBlockday } from "@/lib/blockday-store";
 
 export const Route = createFileRoute("/flow")({
@@ -22,6 +22,7 @@ export const Route = createFileRoute("/flow")({
 export function FlowPage() {
   const {
     tasks,
+    projects,
     addTask,
     toggleTask,
     conflictError,
@@ -44,7 +45,6 @@ export function FlowPage() {
 
   const [newTitle, setNewTitle] = useState("");
   const [sortByEnergy, setSortByEnergy] = useState(false);
-  const [synced, setSynced] = useState("Synced 2h ago");
 
   const isToday = dayOffset === 0;
   const dayTasks: Task[] = dayOffset < 0 ? (historicalDays[dayOffset] ?? []) : tasks;
@@ -57,7 +57,7 @@ export function FlowPage() {
   const handleAddTask = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim()) return;
-    void addTask(newTitle.trim(), "blockday", 15).catch(() => {});
+    void addTask(newTitle.trim(), undefined, 15).catch(() => {});
     setNewTitle("");
   };
 
@@ -128,7 +128,7 @@ export function FlowPage() {
           <div className="flex min-h-0 flex-1 flex-col justify-between overflow-y-auto">
             <div className="flex flex-col">
               {timelineSchedule.map((item, idx) => {
-                const project = projectById(item.project);
+                const project = projects.find((candidate) => candidate.id === item.project);
                 return (
                   <div
                     key={idx}
@@ -136,7 +136,7 @@ export function FlowPage() {
                   >
                     <div className="flex items-center gap-3">
                       <span className="font-mono text-xs font-bold text-muted-foreground">{item.time}</span>
-                      <span className={`project-swatch ${project ? toneBg[project.tone] : "bg-panel"}`} />
+                      <span className={`project-swatch ${project ? toneBg.neutral : "bg-panel"}`} />
                       <span className="font-bold text-sm tracking-tight">{item.title}</span>
                     </div>
                     <span className="font-mono text-[10px] font-bold uppercase tracking-[0.12em] text-muted-foreground">
@@ -283,7 +283,7 @@ export function FlowPage() {
           {/* Open Tasks */}
           <div className="divide-y divide-grid/20">
             {open.map((t) => {
-              const project = projectById(t.projectId);
+              const project = projects.find((candidate) => candidate.id === t.projectId);
               return (
                 <div
                   key={t.id}
@@ -306,7 +306,7 @@ export function FlowPage() {
                   </div>
                   <div className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
                     <span>{t.estimate}M</span>
-                    <span className={`project-swatch ${project ? toneBg[project.tone] : "bg-panel"}`} />
+                    <span className={`project-swatch ${project ? toneBg.neutral : "bg-panel"}`} />
                   </div>
                 </div>
               );
@@ -324,7 +324,7 @@ export function FlowPage() {
               </div>
               <div className="divide-y divide-grid/20 opacity-60">
                 {done.map((t) => {
-                  const project = projectById(t.projectId);
+                  const project = projects.find((candidate) => candidate.id === t.projectId);
                   return (
                     <div
                       key={t.id}
@@ -332,7 +332,7 @@ export function FlowPage() {
                       className="group flex cursor-pointer items-center justify-between px-4 py-2 hover:opacity-100 transition-opacity"
                     >
                       <div className="flex items-center gap-3">
-                        <span className={`h-4 w-1 flex-shrink-0 ${project ? toneBg[project.tone] : "bg-block-blue"}`} />
+                    <span className={`h-4 w-1 flex-shrink-0 ${project ? toneBg.neutral : "bg-panel"}`} />
                         <span className="check-button size-4 bg-block-ink text-canvas">
                           <Check className="size-2.5 stroke-[4]" />
                         </span>
@@ -340,7 +340,7 @@ export function FlowPage() {
                       </div>
                       <div className="flex items-center gap-2 font-mono text-[9px] text-muted-foreground">
                         <span>{t.estimate}M</span>
-                        <span className={`project-swatch size-2 ${project ? toneBg[project.tone] : "bg-panel"}`} />
+                        <span className={`project-swatch size-2 ${project ? toneBg.neutral : "bg-panel"}`} />
                       </div>
                     </div>
                   );
@@ -355,7 +355,7 @@ export function FlowPage() {
       </section>
 
       {/* COLUMN 3: NARROW UTILITY RAIL */}
-      <aside className="flex min-h-0 flex-col gap-[5px] bg-grid">
+      <aside className="flex min-h-0 flex-col gap-[5px] bg-grid overflow-y-auto">
         {/* EAT THE FROG CARD */}
         {frog && (
           <div className="flex flex-col justify-between border-b-2 border-grid bg-block-red p-4 text-on-primary min-h-[140px]">
@@ -375,15 +375,15 @@ export function FlowPage() {
           </div>
         )}
 
-        {/* GOOGLE CALENDAR CARD */}
+        {/* SCHEDULE CONTEXT CARD */}
         <div className="flex flex-col border-b-2 border-grid bg-canvas p-4">
           <div className="flex items-center justify-between">
-            <span className="text-[9px] font-black uppercase tracking-[0.16em]">Google Calendar</span>
-            <span className="text-[10px] text-muted-foreground">✕</span>
+            <span className="text-[9px] font-black uppercase tracking-[0.16em]">Calendar Schedule</span>
+            <span className="text-[8px] font-mono uppercase text-muted-foreground border border-grid/30 px-1">Sample</span>
           </div>
           <div className="mt-1 flex items-center gap-1.5 text-[8px] font-bold uppercase tracking-wider text-muted-foreground">
             <span className="size-1.5 bg-block-blue" />
-            <span>{synced}</span>
+            <span>Local Timeline · No Live Sync (M2 Planned)</span>
           </div>
 
           <div className="mt-3 space-y-1.5 border-t border-grid/20 pt-2 text-xs">
@@ -397,16 +397,16 @@ export function FlowPage() {
 
           <div className="mt-4 flex gap-2 border-t border-grid/20 pt-2">
             <button
-              onClick={() => setSynced("Synced just now")}
+              onClick={() => alert("Local flow timeline refreshed")}
               className="ghost-chip flex-1 py-1 text-center text-[8px]"
             >
-              Sync
+              Refresh
             </button>
             <button
-              onClick={() => alert("Flow scheduled into calendar")}
+              onClick={() => alert("Calendar export & two-way sync is planned for M2")}
               className="ghost-chip flex-1 py-1 text-center text-[8px]"
             >
-              Send flow
+              Export
             </button>
           </div>
         </div>

@@ -7,6 +7,7 @@ import type {
 import type { SyncCoordinator, SyncPersistence } from "./sync-coordinator";
 import {
   backendToTask,
+  calcDueInDays,
   formatBackendDescription,
   parseDescriptionMetadata,
   type BackendTask,
@@ -69,6 +70,8 @@ export interface TaskCreateMutationParams {
   mood?: Mood | undefined;
   frog?: boolean | undefined;
   dueDate?: string | null | undefined;
+  softDeadline?: string | null | undefined;
+  hardDeadline?: string | null | undefined;
   description?: string | null | undefined;
   entityId?: string | undefined;
   dependsOn?: string[] | undefined;
@@ -124,9 +127,10 @@ export function buildTaskCreateEnvelope(params: TaskCreateMutationParams): SyncO
       description: formattedDesc,
       status: "open",
       priority: params.frog ? 1 : 3,
-      due_date: params.dueDate ?? null,
+      due_date: params.softDeadline ?? params.dueDate ?? null,
       project_id: projectId,
       capture_id: null,
+      ...(params.hardDeadline !== undefined ? { hard_deadline: params.hardDeadline } : {}),
     },
     created_at: new Date().toISOString(),
     depends_on: params.dependsOn ? [...params.dependsOn] : [],
@@ -167,9 +171,12 @@ export function buildTaskUpdateEnvelope(
       description: formattedDesc,
       status: merged.done ? "done" : "open",
       priority: merged.priority ?? (merged.frog ? 1 : 3),
-      due_date: merged.dueDate ?? null,
+      due_date: merged.softDeadline ?? merged.dueDate ?? null,
       project_id: projectId,
       capture_id: null,
+      ...(updates.hardDeadline !== undefined || currentTask.hardDeadline !== undefined
+        ? { hard_deadline: merged.hardDeadline ?? null }
+        : {}),
     },
     created_at: new Date().toISOString(),
     depends_on: options.dependsOn ? [...options.dependsOn] : [],
@@ -597,6 +604,7 @@ export class OfflineMutationBoundary {
                   status: (item.snapshot.data["status"] as string) || "open",
                   priority: (item.snapshot.data["priority"] as number) ?? null,
                   due_date: (item.snapshot.data["due_date"] as string) || null,
+                  hard_deadline: (item.snapshot.data["hard_deadline"] as string) || null,
                   revision: item.revision,
                   created_at: "",
                   updated_at: "",
@@ -703,18 +711,26 @@ export class OfflineMutationBoundary {
       if (op.operation_type === "create") {
         const payload = op.payload ?? {};
         const parsed = parseDescriptionMetadata(payload["description"] as string | null);
+        const softDeadline = (payload["due_date"] as string) || null;
+        const hardDeadline = (payload["hard_deadline"] as string) || null;
+        const softDueIn = calcDueInDays(softDeadline);
+        const hardDueIn = calcDueInDays(hardDeadline);
         const task: Task = {
           id: op.entity_id,
           title: (payload["title"] as string) || "Untitled Task",
           projectId: (payload["project_id"] as string) || "unassigned",
-          dueIn: null,
+          dueIn: softDueIn ?? hardDueIn ?? null,
+          softDueIn,
+          hardDueIn,
           estimate: parsed.estimate ?? 15,
           mood: parsed.mood ?? "Clear",
           frog: payload["priority"] === 1,
           done: payload["status"] === "done",
           revision: entry.acknowledgement?.revision ?? 1,
           description: parsed.userDescription,
-          dueDate: (payload["due_date"] as string) || null,
+          dueDate: softDeadline,
+          softDeadline,
+          hardDeadline,
           priority: (payload["priority"] as number) ?? null,
           syncStatus: entitySyncStatus,
           conflictId: entry.acknowledgement?.conflict_id ?? null,
@@ -725,6 +741,16 @@ export class OfflineMutationBoundary {
         const payload = op.payload ?? {};
         const parsed = parseDescriptionMetadata(payload["description"] as string | null);
         if (existing) {
+          const softDeadline =
+            payload["due_date"] !== undefined
+              ? (payload["due_date"] as string) || null
+              : existing.softDeadline;
+          const hardDeadline =
+            payload["hard_deadline"] !== undefined
+              ? (payload["hard_deadline"] as string) || null
+              : existing.hardDeadline;
+          const softDueIn = calcDueInDays(softDeadline);
+          const hardDueIn = calcDueInDays(hardDeadline);
           taskMap.set(op.entity_id, {
             ...existing,
             title: payload["title"] !== undefined ? (payload["title"] as string) : existing.title,
@@ -738,10 +764,12 @@ export class OfflineMutationBoundary {
                 ? (payload["priority"] as number)
                 : existing.priority,
             frog: payload["priority"] !== undefined ? payload["priority"] === 1 : existing.frog,
-            dueDate:
-              payload["due_date"] !== undefined
-                ? (payload["due_date"] as string)
-                : existing.dueDate,
+            dueDate: softDeadline,
+            softDeadline,
+            hardDeadline,
+            dueIn: softDueIn ?? hardDueIn ?? null,
+            softDueIn,
+            hardDueIn,
             description: parsed.userDescription ?? existing.description,
             mood: parsed.mood ?? existing.mood,
             estimate: parsed.estimate ?? existing.estimate,

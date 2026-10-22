@@ -300,7 +300,8 @@ resource "aws_launch_template" "app" {
 
   lifecycle {
     create_before_destroy = true
-    ignore_changes        = [user_data]
+    # user_data changes must create a new launch template version so bootstrap
+    # updates (such as ASSISTANT_BACKEND=hermes) propagate to new instances.
   }
 }
 
@@ -358,7 +359,8 @@ resource "aws_launch_template" "worker" {
 
   lifecycle {
     create_before_destroy = true
-    ignore_changes        = [user_data]
+    # user_data changes must create a new launch template version so bootstrap
+    # updates (such as ASSISTANT_BACKEND=hermes) propagate to new instances.
   }
 }
 

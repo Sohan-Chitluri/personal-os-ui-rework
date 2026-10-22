@@ -1,0 +1,147 @@
+#!/bin/bash
+# Personal OS EC2 bootstrap (M1-D).
+# Installs runtime deps, pulls the application wheel from S3 (uploaded by
+# scripts/release.sh), writes /etc/personal-os/env from Secrets Manager, and
+# starts EITHER the API or the worker depending on the instance tag `Role`.
+set -euo pipefail
+
+TOKEN="$(curl --fail --silent --show-error -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")"
+ROLE="$(curl --fail --silent --show-error -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/tags/instance/Role)"
+if [[ "$ROLE" != "api" && "$ROLE" != "worker" ]]; then
+  echo "Invalid EC2 Role instance tag: $ROLE" >&2
+  exit 1
+fi
+APP_VERSION="$${APP_VERSION:-latest}"
+
+# --- system deps -----------------------------------------------------------
+dnf update -y
+dnf install -y python3.11 python3.11-pip awscli jq git
+
+# --- app runtime -----------------------------------------------------------
+useradd --system --home /opt/personal-os --shell /sbin/nologin app || true
+install -d -m 0750 -o app -g app /opt/personal-os /etc/personal-os
+
+# Install Hermes CLI in dedicated isolated venv for user app
+install -d -m 0755 /opt/hermes
+python3.11 -m venv /opt/hermes/.venv
+/opt/hermes/.venv/bin/pip install --quiet hermes-agent
+ln -sf /opt/hermes/.venv/bin/hermes /usr/local/bin/hermes
+
+# Fetch the versioned release bundle from S3. It contains the wheel, the
+# Alembic configuration and migrations, and the packaged Personal OS skill.
+aws s3 cp "s3://personal-os-${environment}-artifacts/personal-os-$${APP_VERSION}-bundle.tar.gz" /tmp/app-bundle.tar.gz
+tar -xzf /tmp/app-bundle.tar.gz -C /opt/personal-os
+python3.11 -m venv /opt/personal-os/.venv
+WHEEL_FILE="$(find /opt/personal-os -maxdepth 1 -name '*.whl' | head -n1)"
+if [[ -n "$WHEEL_FILE" ]]; then
+  TARGET_WHEEL="/opt/personal-os/personal_os-0.1.0-py3-none-any.whl"
+  if [[ "$WHEEL_FILE" != "$TARGET_WHEEL" ]]; then
+    mv "$WHEEL_FILE" "$TARGET_WHEEL"
+  fi
+  /opt/personal-os/.venv/bin/pip install --quiet "$TARGET_WHEEL"
+  rm -f "$TARGET_WHEEL"
+fi
+rm -f /tmp/app-bundle.tar.gz /opt/personal-os/app.whl /opt/personal-os/*.whl 2>/dev/null || true
+chown -R app:app /opt/personal-os
+
+# --- env / secrets ---------------------------------------------------------
+# RDS master credentials are fetched at boot from Secrets Manager and written
+# to a root-only env file. The application process reads it via systemd's
+# EnvironmentFile. No secrets ever live in the AMI, the repo, or the wheel.
+SECRET_JSON="$(aws secretsmanager get-secret-value --secret-id '${db_secret_arn}' --query SecretString --output text --region ${aws_region})"
+DB_USER="$(echo "$SECRET_JSON" | jq -r .username)"
+DB_PASS="$(echo "$SECRET_JSON" | jq -r .password)"
+COMPANION_SECRET_JSON="$(aws secretsmanager get-secret-value --secret-id '${companion_secret_arn}' --query SecretString --output text --region ${aws_region})"
+COMPANION_SECRET="$(python3.11 -c '
+import json, sys
+raw = sys.stdin.read().strip()
+try:
+    data = json.loads(raw)
+    if isinstance(data, dict):
+        print(data.get("secret") or data.get("jwt_secret") or "")
+    else:
+        print(data)
+except Exception:
+    print(raw)
+' <<< "$COMPANION_SECRET_JSON")"
+OPENROUTER_SECRET_JSON="$(aws secretsmanager get-secret-value --secret-id '${openrouter_secret_arn}' --query SecretString --output text --region ${aws_region} 2>/dev/null || true)"
+OPENROUTER_KEY="$(python3.11 -c '
+import json, sys
+raw = sys.stdin.read().strip()
+if not raw:
+    sys.exit(0)
+try:
+    data = json.loads(raw)
+    if isinstance(data, dict):
+        print(data.get("api_key") or data.get("secret") or data.get("OPENROUTER_API_KEY") or "")
+    else:
+        print(data)
+except Exception:
+    print(raw)
+' <<< "$OPENROUTER_SECRET_JSON")"
+
+DB_PASS_ENC="$(export DB_PASS; python3.11 -c 'import urllib.parse, os, sys; print(urllib.parse.quote_plus(os.environ["DB_PASS"]))')"
+cat > /etc/personal-os/env <<EOF
+ENVIRONMENT=${app_env_setting}
+DEBUG=false
+LOG_LEVEL=INFO
+GIT_PYTHON_REFRESH=quiet
+AWS_REGION=${aws_region}
+AWS_DEFAULT_REGION=${aws_region}
+COGNITO_REGION=${aws_region}
+COGNITO_USER_POOL_ID=${cognito_user_pool_id}
+COGNITO_APP_CLIENT_ID=${cognito_app_client_id}
+COGNITO_TOKEN_USE=access
+COMPANION_JWT_SECRET=$${COMPANION_SECRET}
+ASSISTANT_BACKEND=hermes
+HERMES_ADAPTER=live
+HERMES_BINARY_PATH=/usr/local/bin/hermes
+HERMES_SKILL_NAME=personal-os
+HERMES_TIMEOUT_SECONDS=90.0
+QUEUE_BACKEND=sqs
+SQS_QUEUE_URL=${sqs_queue_url}
+SQS_REGION=${aws_region}
+SQS_WAIT_TIME_SECONDS=20
+SQS_VISIBILITY_TIMEOUT=900
+SQS_MAX_MESSAGES=1
+# TLS is enforced by the RDS parameter group (rds.force_ssl=1); the asyncpg
+# driver uses the system trust store for certificate verification.
+DATABASE_URL=postgresql+asyncpg://$${DB_USER}:$${DB_PASS_ENC}@${rds_endpoint}:5432/personalos?sslmode=require
+EOF
+install -d -m 0700 -o app -g app /opt/personal-os/.hermes
+if [[ -n "$${OPENROUTER_KEY}" ]]; then
+  echo "OPENROUTER_API_KEY=$${OPENROUTER_KEY}" > /opt/personal-os/.hermes/.env
+  chmod 0600 /opt/personal-os/.hermes/.env
+  chown app:app /opt/personal-os/.hermes/.env
+fi
+unset DB_PASS DB_PASS_ENC SECRET_JSON COMPANION_SECRET COMPANION_SECRET_JSON OPENROUTER_SECRET_JSON OPENROUTER_KEY
+chmod 0640 /etc/personal-os/env
+chown root:app /etc/personal-os/env
+
+# --- systemd units ---------------------------------------------------------
+# systemd units are shipped with each release (release.sh uploads them
+# alongside the wheel) so unit changes roll out with code, not with AMIs.
+aws s3 cp "s3://personal-os-${environment}-artifacts/deploy/systemd/pos-api.service" /etc/systemd/system/pos-api.service
+aws s3 cp "s3://personal-os-${environment}-artifacts/deploy/systemd/pos-worker.service" /etc/systemd/system/pos-worker.service
+systemctl daemon-reload
+
+# --- CloudWatch agent (journald -> CloudWatch Logs, memory metrics) ----------
+dnf install -y amazon-cloudwatch-agent
+/opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
+  -a fetch-config -m ec2 \
+  -c ssm:/personal-os/${environment}/cloudwatch-agent-config \
+  -s || true
+
+# Start only the process this instance is tagged for.
+if [[ "$ROLE" == *api* ]]; then
+  # Apply database migrations on first boot before API startup
+  su -s /bin/bash app -c "cd /opt/personal-os && set -a && . /etc/personal-os/env && set +a && /opt/personal-os/.venv/bin/alembic -c /opt/personal-os/alembic.ini upgrade head"
+  systemctl enable --now pos-api.service
+fi
+if [[ "$ROLE" == *worker* ]]; then
+  systemctl enable --now pos-worker.service
+fi
+if [[ "$ROLE" != "api" && "$ROLE" != "worker" ]]; then
+  echo "Refusing to start a default service for role '$ROLE'" >&2
+  exit 1
+fi

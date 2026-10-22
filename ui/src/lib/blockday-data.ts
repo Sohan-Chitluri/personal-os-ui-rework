@@ -1,4 +1,5 @@
-import type { Mood, Task, Tone } from "./task-types";
+import { calcDueInDays, type Mood, type Task, type Tone } from "./task-types";
+export { calcDueInDays };
 export type { Mood, Task, Tone };
 
 export type Project = { id: string; name: string; tone: Tone; parent?: string; progress: number; active?: boolean; summary: string };
@@ -52,6 +53,55 @@ export function deadline(dueIn: number | null): { kind: DeadlineKind; label: str
   if (dueIn < 0) return { kind: "overdue", label: `${Math.abs(dueIn)} ${Math.abs(dueIn) === 1 ? "day" : "days"} overdue` };
   if (dueIn === 0) return { kind: "today", label: "Due today" };
   return { kind: "upcoming", label: `${dueIn} ${dueIn === 1 ? "day" : "days"} left` };
+}
+
+export function formatHardDeadlineLocal(isoString: string): string {
+  try {
+    const d = new Date(isoString);
+    if (isNaN(d.getTime())) return isoString;
+    return new Intl.DateTimeFormat(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    }).format(d);
+  } catch {
+    return isoString;
+  }
+}
+
+export function getTaskStripeClass(task: {
+  hardDeadline?: string | null | undefined;
+  hardDueIn?: number | null | undefined;
+  softDeadline?: string | null | undefined;
+  softDueIn?: number | null | undefined;
+  dueDate?: string | null | undefined;
+  dueIn: number | null | undefined;
+}): string {
+  // Check hard deadline first - red shades reserved exclusively for hard deadlines
+  const hasHard = Boolean(task.hardDeadline || (task.hardDueIn !== null && task.hardDueIn !== undefined));
+  if (hasHard) {
+    const hardDays = task.hardDueIn ?? calcDueInDays(task.hardDeadline);
+    if (hardDays !== null) {
+      if (hardDays < 0) return "deadline-hard-overdue";
+      if (hardDays <= 1) return "deadline-hard-urgent";
+      return "deadline-hard-upcoming";
+    }
+  }
+
+  // Soft deadline - restrained neutral treatment
+  const softDays =
+    task.softDueIn ??
+    (task.softDeadline || task.dueDate
+      ? calcDueInDays(task.softDeadline ?? task.dueDate)
+      : task.dueIn);
+  if (softDays !== null && softDays !== undefined) {
+    if (softDays < 0) return "deadline-soft-overdue";
+    if (softDays === 0) return "deadline-soft-today";
+    return "deadline-soft-upcoming";
+  }
+
+  return "deadline-none";
 }
 
 // Stats: 35 days of completions (oldest first). Deterministic.

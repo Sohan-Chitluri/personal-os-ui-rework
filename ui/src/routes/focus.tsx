@@ -1,17 +1,30 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { Check, ChevronLeft, ChevronRight, Play, RotateCcw } from "lucide-react";
 import { useState } from "react";
-import { DemoModeBanner, TaskConflictBanner, TaskErrorBanner, toneBg } from "@/components/blockday-ui";
-import { historicalDays, projectById, type Task } from "@/lib/blockday-data";
+import {
+  DemoModeBanner,
+  TaskConflictBanner,
+  TaskErrorBanner,
+  toneBg,
+} from "@/components/blockday-ui";
+import { historicalDays, type Task } from "@/lib/blockday-data";
 import { formatClock, morph, useBlockday, type TimerMode } from "@/lib/blockday-store";
 
 export const Route = createFileRoute("/focus")({
   head: () => ({
     meta: [
       { title: "Focus — Blockday" },
-      { name: "description", content: "A monumental Mondrian timer: focus and break sessions with architectural framing and live task workspace." },
+      {
+        name: "description",
+        content:
+          "A monumental Mondrian timer: focus and break sessions with architectural framing and live task workspace.",
+      },
       { property: "og:title", content: "Focus — Blockday" },
-      { property: "og:description", content: "A monumental Mondrian timer: focus and break sessions with architectural framing and live task workspace." },
+      {
+        property: "og:description",
+        content:
+          "A monumental Mondrian timer: focus and break sessions with architectural framing and live task workspace.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],
@@ -22,6 +35,7 @@ export const Route = createFileRoute("/focus")({
 export function FocusPage() {
   const {
     tasks,
+    projects,
     addTask,
     toggleTask,
     conflictError,
@@ -59,7 +73,9 @@ export function FocusPage() {
   const plannedMin = open.reduce((sum, t) => sum + t.estimate, 0);
 
   const active = tasks.find((t) => t.id === timer.taskId) ?? open[0];
-  const activeProject = active ? projectById(active.projectId) : undefined;
+  const activeProject = active
+    ? projects.find((project) => project.id === active.projectId)
+    : undefined;
   const frog = open.find((t) => t.frog) || open[0];
 
   const toggle = (id: string) => {
@@ -69,7 +85,7 @@ export function FocusPage() {
   const handleAddTask = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTitle.trim()) return;
-    void addTask(newTitle.trim(), "blockday", 15).catch(() => {});
+    void addTask(newTitle.trim(), undefined, 15).catch(() => {});
     setNewTitle("");
   };
 
@@ -80,12 +96,12 @@ export function FocusPage() {
   const monthYear = date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
 
   return (
-    <main className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_380px] min-h-[calc(100vh-72px)] bg-grid gap-[4px] border-l-[4px] border-grid overflow-y-auto">
+    <main className="grid h-full min-h-0 min-w-0 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_380px] bg-grid gap-[4px] border-l-[4px] border-grid overflow-y-auto lg:overflow-hidden">
       {/* =========================================================================
           STAGE 1 & 2: MAIN FOCUS STAGE (LEFT & CENTER)
           Mondrian wireframe mosaic + Monumental timer + Foundational primary color slabs
          ========================================================================= */}
-      <section className="flex flex-col justify-between bg-canvas h-full min-h-[600px]">
+      <section className="flex flex-col justify-between bg-canvas h-full min-h-0 overflow-y-auto">
         {/* Upper Focus Canvas */}
         <div className="flex-1 flex flex-col lg:flex-row items-center justify-around p-6 sm:p-8 xl:p-12 gap-8 xl:gap-12">
           {/* Mondrian Architectural Wireframe Mosaic */}
@@ -126,7 +142,9 @@ export function FocusPage() {
 
             {/* Task Context / Drag prompt */}
             <p className="mt-4 sm:mt-6 text-[9px] xl:text-[10px] font-bold uppercase tracking-[0.16em] text-muted-foreground px-4 line-clamp-1">
-              {active ? `${active.title}${activeProject ? ` · ${activeProject.name}` : ""}` : "Drag a task here, or press ▶ on one"}
+              {active
+                ? `${active.title}${activeProject ? ` · ${activeProject.name}` : ""}`
+                : "Drag a task here, or press ▶ on one"}
             </p>
 
             {/* Timer Actions: Start & Reset */}
@@ -150,7 +168,7 @@ export function FocusPage() {
 
             {/* Completed sessions indicator */}
             <p className="mt-4 text-[9px] font-black uppercase tracking-[0.2em] text-muted-foreground">
-              {timer.sessions} TODAY
+              {timer.sessions} TODAY · DEVICE-LOCAL SESSION (M2 PERSISTENCE PLANNED)
             </p>
           </div>
         </div>
@@ -167,17 +185,15 @@ export function FocusPage() {
           STAGE 3: RIGHT UTILITY & TASK WORKSPACE
           Solid Red Eat the Frog + Today Tasks Ledger
          ========================================================================= */}
-      <aside className="flex flex-col bg-grid gap-[4px] h-full">
+      <aside className="flex flex-col bg-grid gap-[4px] h-full min-h-0 overflow-hidden">
         {/* EAT THE FROG CARD */}
         {frog && (
-          <div className="bg-block-red text-on-primary p-5 flex flex-col justify-between min-h-[160px]">
+          <div className="bg-block-red text-on-primary p-5 flex flex-col justify-between min-h-[160px] shrink-0">
             <div>
               <span className="text-[8.5px] font-black uppercase tracking-[0.2em] opacity-90 block">
                 Eat the frog
               </span>
-              <h3 className="mt-2 text-xl font-bold leading-tight">
-                {frog.title}
-              </h3>
+              <h3 className="mt-2 text-xl font-bold leading-tight">{frog.title}</h3>
               <p className="mt-1 font-mono text-[9px] uppercase tracking-wider opacity-85">
                 Drift · {frog.estimate}M
               </p>
@@ -192,17 +208,19 @@ export function FocusPage() {
         )}
 
         {/* TODAY DATE & TASKS LEDGER */}
-        <div className="bg-canvas flex flex-col flex-1 min-h-0 justify-between">
-          <div>
+        <div className="bg-canvas flex flex-col flex-1 min-h-0 overflow-hidden">
+          <div className="flex flex-col flex-1 min-h-0">
             {/* Date Header */}
-            <div className="border-b-2 border-grid p-4 xl:p-5">
+            <div className="border-b-2 border-grid p-4 xl:p-5 shrink-0">
               <div className="flex items-baseline justify-between gap-3">
                 <div className="flex items-baseline gap-3">
                   <span className="font-display text-4xl xl:text-5xl font-black leading-none tabular-nums text-foreground">
                     {dayNum}
                   </span>
                   <div>
-                    <h2 className="font-display text-lg xl:text-xl uppercase leading-none tracking-tight">{weekday}</h2>
+                    <h2 className="font-display text-lg xl:text-xl uppercase leading-none tracking-tight">
+                      {weekday}
+                    </h2>
                     <p className="mt-0.5 text-[8.5px] font-bold uppercase tracking-[0.16em] text-muted-foreground">
                       {monthYear}
                     </p>
@@ -247,13 +265,18 @@ export function FocusPage() {
               </div>
 
               <div className="mt-2.5 flex items-center justify-between text-[8.5px] font-black uppercase tracking-[0.16em] text-muted-foreground border-t border-grid/20 pt-1.5">
-                <span>{open.length} Open · {done.length} Done · {plannedMin}M Planned</span>
+                <span>
+                  {open.length} Open · {done.length} Done · {plannedMin}M Planned
+                </span>
                 <span>Wraps ~9:25AM</span>
               </div>
             </div>
 
             {/* Quick add */}
-            <form onSubmit={handleAddTask} className="border-b-2 border-grid bg-canvas px-4 py-2">
+            <form
+              onSubmit={handleAddTask}
+              className="border-b-2 border-grid bg-canvas px-4 py-2 shrink-0"
+            >
               <input
                 value={newTitle}
                 onChange={(e) => setNewTitle(e.target.value)}
@@ -264,12 +287,12 @@ export function FocusPage() {
 
             {/* Task list rows */}
             {isDemoMode && (
-              <div className="p-2 border-b border-grid">
+              <div className="p-2 border-b border-grid shrink-0">
                 <DemoModeBanner onExit={disableDemoMode} />
               </div>
             )}
             {conflictError && (
-              <div className="p-2 border-b border-grid">
+              <div className="p-2 border-b border-grid shrink-0">
                 <TaskConflictBanner
                   message={`Revision conflict: ${conflictError.message}`}
                   onResolve={refetchTasks}
@@ -278,7 +301,7 @@ export function FocusPage() {
               </div>
             )}
             {error && !conflictError && (
-              <div className="p-2 border-b border-grid">
+              <div className="p-2 border-b border-grid shrink-0">
                 <TaskErrorBanner
                   message={error.message}
                   onDismiss={clearError}
@@ -286,9 +309,9 @@ export function FocusPage() {
                 />
               </div>
             )}
-            <div className="divide-y divide-grid/20 overflow-y-auto max-h-[380px] xl:max-h-[460px]">
+            <div className="divide-y divide-grid/20 overflow-y-auto flex-1 min-h-0">
               {open.map((t) => {
-                const project = projectById(t.projectId);
+                const project = projects.find((candidate) => candidate.id === t.projectId);
                 const isSelected = active?.id === t.id;
                 return (
                   <div
@@ -312,7 +335,7 @@ export function FocusPage() {
                     </div>
                     <div className="flex items-center gap-2 font-mono text-[9px] text-muted-foreground">
                       <span>{t.estimate}M</span>
-                      <span className={`project-swatch ${project ? toneBg[project.tone] : "bg-panel"}`} />
+                      <span className={`project-swatch ${project ? toneBg.neutral : "bg-panel"}`} />
                     </div>
                   </div>
                 );
@@ -326,7 +349,7 @@ export function FocusPage() {
                 </div>
                 <div className="divide-y divide-grid/20 opacity-60 max-h-[140px] overflow-y-auto">
                   {done.map((t) => {
-                    const project = projectById(t.projectId);
+                    const project = projects.find((candidate) => candidate.id === t.projectId);
                     return (
                       <div
                         key={t.id}
@@ -334,10 +357,14 @@ export function FocusPage() {
                         className="group flex cursor-pointer items-center justify-between px-4 py-1.5 hover:opacity-100 transition-opacity"
                       >
                         <div className="flex items-center gap-2.5">
-                          <span className={`h-3 w-1 flex-shrink-0 ${project ? toneBg[project.tone] : "bg-block-blue"}`} />
+                          <span
+                            className={`h-3 w-1 flex-shrink-0 ${project ? toneBg.neutral : "bg-panel"}`}
+                          />
                           <span className="text-xs line-through">{t.title}</span>
                         </div>
-                        <span className="font-mono text-[9px] text-muted-foreground">{t.estimate}M</span>
+                        <span className="font-mono text-[9px] text-muted-foreground">
+                          {t.estimate}M
+                        </span>
                       </div>
                     );
                   })}

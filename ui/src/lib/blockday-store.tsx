@@ -15,6 +15,7 @@ import { projectApi } from "./project-api";
 import type { BackendProject, ProjectCreatePayload, ProjectUpdatePayload } from "./project-types";
 import {
   backendToTask,
+  calcDueInDays,
   taskToCreatePayload,
   taskToUpdatePayload,
   type BackendTask,
@@ -76,6 +77,11 @@ export type Store = {
     projectId?: string,
     estimate?: number,
     mood?: Mood,
+    options?: {
+      softDeadline?: string | null | undefined;
+      hardDeadline?: string | null | undefined;
+      dueDate?: string | null | undefined;
+    },
   ) => Promise<Task | undefined>;
   toggleTask: (id: string) => Promise<Task | undefined>;
   updateTask: (id: string, updates: Partial<Task>) => Promise<Task | undefined>;
@@ -557,22 +563,37 @@ export function BlockdayProvider({
       projectId = selectedProjectId || undefined,
       estimate = 15,
       mood: Mood = "Clear",
+      options?: {
+        softDeadline?: string | null | undefined;
+        hardDeadline?: string | null | undefined;
+        dueDate?: string | null | undefined;
+      },
     ) => {
       const trimmed = title.trim();
       if (!trimmed) return;
       clearError();
       clearConflict();
 
+      const soft = options?.softDeadline ?? options?.dueDate ?? null;
+      const hard = options?.hardDeadline ?? null;
+      const softDueIn = calcDueInDays(soft);
+      const hardDueIn = calcDueInDays(hard);
+
       if (isDemoMode) {
         const demoTask: Task = {
           id: `demo_${Date.now()}`,
           title: trimmed,
           projectId: projectId ?? "unassigned",
-          dueIn: 0,
+          dueIn: softDueIn ?? hardDueIn ?? 0,
+          softDueIn,
+          hardDueIn,
           estimate,
           mood,
           done: false,
           revision: 1,
+          dueDate: soft,
+          softDeadline: soft,
+          hardDeadline: hard,
         };
         morph(() => {
           queryClient.setQueryData<Task[]>(["tasks"], (old = []) => [demoTask, ...old]);
@@ -587,6 +608,9 @@ export function BlockdayProvider({
             projectId,
             estimate,
             mood,
+            dueDate: soft,
+            softDeadline: soft,
+            hardDeadline: hard,
           });
           queryClient.setQueryData<Task[]>(["tasks"], (old = []) => [createdTask, ...old]);
           return createdTask;
@@ -602,11 +626,16 @@ export function BlockdayProvider({
         id: tempId,
         title: trimmed,
         projectId: projectId ?? "unassigned",
-        dueIn: 0,
+        dueIn: softDueIn ?? hardDueIn ?? 0,
+        softDueIn,
+        hardDueIn,
         estimate,
         mood,
         done: false,
         revision: 1,
+        dueDate: soft,
+        softDeadline: soft,
+        hardDeadline: hard,
       };
 
       morph(() => {
@@ -619,6 +648,9 @@ export function BlockdayProvider({
           ...(projectId ? { projectId } : {}),
           estimate,
           mood,
+          dueDate: soft,
+          softDeadline: soft,
+          hardDeadline: hard,
         });
         const created = await taskApi.createTask(payload);
         const serverTask = backendToTask(created, optimisticTask);

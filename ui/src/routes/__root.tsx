@@ -99,7 +99,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
-      { rel: "stylesheet", href: "https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700;800;900&display=swap" },
+      {
+        rel: "stylesheet",
+        href: "https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700;800;900&display=swap",
+      },
     ],
   }),
   shellComponent: RootShell,
@@ -126,23 +129,19 @@ function RootComponent() {
   const { queryClient } = Route.useRouteContext();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
-  if (
-    isCognitoConfigured() &&
-    !getCognitoAccessToken() &&
-    pathname !== "/auth/callback"
-  ) {
+  if (isCognitoConfigured() && !getCognitoAccessToken() && pathname !== "/auth/callback") {
     return <SignInScreen />;
   }
 
   return (
     <QueryClientProvider client={queryClient}>
       <BlockdayProvider>
-        <div className="flex min-h-screen flex-col">
+        <div className="flex h-dvh max-h-dvh flex-col overflow-hidden">
           <AppHeader />
           <SyncStatusPanel />
           <div className="shell-grid">
             <AppSidebar />
-            <main key={pathname} className="page-assemble min-w-0">
+            <main key={pathname} className="page-assemble min-h-0 min-w-0 flex-1 overflow-hidden">
               {/* Required: nested routes render here. Removing <Outlet /> breaks all child routes. */}
               <Outlet />
             </main>
@@ -160,14 +159,24 @@ function SignInScreen() {
     <main className="mx-auto my-20 max-w-md border-2 border-grid bg-canvas p-8">
       <p className="section-label">Personal OS</p>
       <h1 className="mt-2 font-display text-3xl uppercase">Sign in to continue</h1>
-      <p className="mt-3 text-sm text-muted-foreground">Your projects and tasks are private to your account.</p>
+      <p className="mt-3 text-sm text-muted-foreground">
+        Your projects and tasks are private to your account.
+      </p>
       <button
         className="mt-6 w-full border-2 border-grid bg-block-blue px-4 py-3 text-sm font-black uppercase text-on-primary"
-        onClick={() => void beginCognitoLogin().catch((reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason)))}
+        onClick={() =>
+          void beginCognitoLogin().catch((reason: unknown) =>
+            setError(reason instanceof Error ? reason.message : String(reason)),
+          )
+        }
       >
         Continue with Cognito
       </button>
-      {error && <p role="alert" className="mt-3 text-sm text-block-red">{error}</p>}
+      {error && (
+        <p role="alert" className="mt-3 text-sm text-block-red">
+          {error}
+        </p>
+      )}
     </main>
   );
 }

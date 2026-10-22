@@ -9,11 +9,90 @@ between the real vault and the temp vault.
 """
 from __future__ import annotations
 
-import importlib
 import os
+from uuid import uuid4
 from pathlib import Path
 
 import pytest
+import pytest_asyncio
+
+# --------------------------------------------------------------------------
+# M1 database fixtures. Each test receives an isolated PostgreSQL schema.
+# --------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def db_engine():
+    from sqlalchemy import text
+    from sqlalchemy.engine import make_url
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from personal_os.db.base import Base
+
+    database_url = os.environ.get("DATABASE_URL")
+    if not database_url:
+        pytest.fail(
+            "Database-backed tests require DATABASE_URL for PostgreSQL. "
+            "Start the local database and run scripts/test-postgres.sh."
+        )
+    parsed = make_url(database_url)
+    if (
+        parsed.drivername != "postgresql+asyncpg"
+        or parsed.database != "personal_os_test"
+        or parsed.host not in {"localhost", "127.0.0.1", "::1"}
+    ):
+        pytest.fail(
+            "Refusing database-backed test fixture: DATABASE_URL must target "
+            "local PostgreSQL database personal_os_test."
+        )
+
+    schema = f"test_{uuid4().hex}"
+    engine = create_async_engine(
+        database_url,
+        connect_args={"server_settings": {"search_path": schema}},
+    )
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(f'CREATE SCHEMA "{schema}"'))
+            await conn.run_sync(Base.metadata.create_all)
+        yield engine
+    finally:
+        async with engine.begin() as conn:
+            await conn.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+        await engine.dispose()
+
+
+@pytest_asyncio.fixture
+async def db_session(db_engine):
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    factory = async_sessionmaker(bind=db_engine, expire_on_commit=False, autoflush=False)
+    async with factory() as session:
+        yield session
+
+
+@pytest_asyncio.fixture
+async def db_session_factory(db_engine):
+    """Factory for fresh sessions over the shared engine — models the worker
+    opening a new unit of work per message."""
+    from sqlalchemy.ext.asyncio import async_sessionmaker
+
+    return async_sessionmaker(bind=db_engine, expire_on_commit=False, autoflush=False)
+
+
+@pytest_asyncio.fixture
+async def test_user(db_session):
+    from personal_os.db.models import User
+
+    user = User(
+        cognito_sub="test-user-sub",
+        email="test@example.com",
+        display_name="Test User",
+    )
+    db_session.add(user)
+    # Service tests often open a second session to model a worker transaction.
+    # Commit the fixture identity so those sessions see an existing owner.
+    await db_session.commit()
+    return user
 
 
 def _reset_singletons():

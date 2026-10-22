@@ -327,6 +327,7 @@ class PostgresSyncStore:
             "status",
             "priority",
             "due_date",
+            "hard_deadline",
             "project_id",
             "capture_id",
         },
@@ -868,7 +869,9 @@ class PostgresSyncStore:
             return None
         allowed = self._SYNC_FIELDS[operation.entity_type]
         extra = set(operation.payload) - allowed
-        missing = allowed - set(operation.payload)
+        # Optional fields (e.g. hard_deadline) are allowed if present, but not required to be present
+        required_doc = allowed - {"hard_deadline"}
+        missing = required_doc - set(operation.payload)
         required = self._REQUIRED_FIELDS[operation.entity_type]
         if extra:
             return f"payload contains unsupported fields: {', '.join(sorted(extra))}"
@@ -982,7 +985,8 @@ def _domain_values(entity_type: EntityType, payload: dict[str, Any]) -> dict[str
             "description": payload.get("description"),
             "status": payload.get("status", "open"),
             "priority": payload.get("priority"),
-            "due_date": _parse_datetime(payload.get("due_date")),
+            "due_date": _parse_datetime(payload.get("due_date"), "due_date"),
+            "hard_deadline": _parse_datetime(payload.get("hard_deadline"), "hard_deadline"),
             "project_id": payload.get("project_id"),
             "capture_id": payload.get("capture_id"),
         }
@@ -1020,18 +1024,18 @@ def _domain_values(entity_type: EntityType, payload: dict[str, Any]) -> dict[str
     raise ValueError(f"unsupported sync entity type: {entity_type.value}")
 
 
-def _parse_datetime(value: Any) -> datetime | None:
+def _parse_datetime(value: Any, field_name: str = "due_date") -> datetime | None:
     if value is None or isinstance(value, datetime):
         parsed = value
     elif isinstance(value, str):
         try:
             parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
         except ValueError as exc:
-            raise ValueError("due_date must be an ISO-8601 datetime") from exc
+            raise ValueError(f"{field_name} must be an ISO-8601 datetime") from exc
     else:
-        raise ValueError("due_date must be an ISO-8601 datetime or null")
+        raise ValueError(f"{field_name} must be an ISO-8601 datetime or null")
     if parsed is not None and (parsed.tzinfo is None or parsed.utcoffset() is None):
-        raise ValueError("due_date must include a timezone")
+        raise ValueError(f"{field_name} must include a timezone")
     return parsed.astimezone(UTC) if parsed is not None else None
 
 

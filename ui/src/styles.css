@@ -163,6 +163,13 @@
     border-color: var(--color-border);
   }
 
+  html,
+  body {
+    height: 100%;
+    max-height: 100%;
+    overflow: hidden;
+  }
+
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
@@ -371,8 +378,8 @@
   --color-deadline-upcoming: var(--deadline-upcoming);
   --color-deadline-none: var(--deadline-none);
 }
-@utility app-header { display: grid; height: 72px; grid-template-columns: 260px minmax(0,1fr) auto; border-bottom: 5px solid var(--grid); background: var(--canvas); }
-@utility page-grid { display: grid; min-height: calc(100vh - 72px); background: var(--grid); gap: 5px; border-left: 5px solid var(--grid); }
+@utility app-header { display: grid; height: 72px; grid-template-columns: 260px minmax(0,1fr) auto; border-bottom: 5px solid var(--grid); background: var(--canvas); flex-shrink: 0; }
+@utility page-grid { display: grid; height: 100%; min-height: 0; min-width: 0; background: var(--grid); gap: 5px; border-left: 5px solid var(--grid); }
 @utility grid-panel { background: var(--canvas); padding: 1.25rem; min-width: 0; }
 @utility stat-block { padding: 1.1rem; min-width: 0; }
 @utility deadline-strip { align-self: stretch; width: 0.7rem; flex-shrink: 0; border-right: 2px solid var(--grid); }
@@ -380,11 +387,77 @@
 @utility deadline-today { background: var(--deadline-today); }
 @utility deadline-upcoming { background: var(--deadline-upcoming); }
 @utility deadline-none { background: var(--deadline-none); }
-@utility deadline-label { flex-shrink: 0; border: 1px solid var(--grid); padding: 0.3rem 0.45rem; font-size: 0.55rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.12em; }
+
+/* Left stripe deadline semantics */
+@utility deadline-hard-overdue { background: #b91c1c; }
+@utility deadline-hard-urgent { background: #dc2626; }
+@utility deadline-hard-upcoming { background: #ea580c; }
+@utility deadline-soft-overdue { background: #64748b; }
+@utility deadline-soft-today { background: #94a3b8; }
+@utility deadline-soft-upcoming { background: #cbd5e1; }
+
+@utility deadline-label { flex-shrink: 0; border: 1px solid var(--grid); padding: 0.3rem 0.45rem; font-size: 0.55rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.12em; line-height: 1; }
 @utility deadline-label-overdue { color: var(--deadline-overdue); border-color: var(--deadline-overdue); }
 @utility deadline-label-today { background: var(--deadline-today); color: var(--block-ink); }
 @utility deadline-label-upcoming { color: var(--deadline-upcoming); }
 @utility deadline-label-none { color: var(--muted-foreground); border-style: dashed; }
+@utility deadline-label-hard { color: var(--block-red); border-color: var(--block-red); background: color-mix(in oklab, var(--block-red) 10%, var(--canvas)); font-weight: 900; }
+
+/* 3D Flip Deadline Badge */
+.deadline-badge-wrapper {
+  perspective: 700px;
+  display: inline-flex;
+  position: relative;
+  vertical-align: middle;
+}
+
+.deadline-card-inner {
+  position: relative;
+  display: inline-flex;
+  transform-style: preserve-3d;
+  transition: transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.deadline-badge-wrapper.has-flip:hover .deadline-card-inner,
+.deadline-badge-wrapper.has-flip:focus-within .deadline-card-inner,
+.deadline-badge-wrapper.has-flip.is-flipped .deadline-card-inner {
+  transform: rotateY(180deg);
+}
+
+.deadline-card-front,
+.deadline-card-back {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+}
+
+.deadline-card-back {
+  position: absolute;
+  inset: 0;
+  transform: rotateY(180deg);
+  justify-content: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .deadline-card-inner {
+    transition: none !important;
+    transform: none !important;
+  }
+  .deadline-badge-wrapper.has-flip:hover .deadline-card-front,
+  .deadline-badge-wrapper.has-flip:focus-within .deadline-card-front,
+  .deadline-badge-wrapper.has-flip.is-flipped .deadline-card-front {
+    display: none !important;
+  }
+  .deadline-badge-wrapper.has-flip:hover .deadline-card-back,
+  .deadline-badge-wrapper.has-flip:focus-within .deadline-card-back,
+  .deadline-badge-wrapper.has-flip.is-flipped .deadline-card-back {
+    position: static !important;
+    transform: none !important;
+    display: inline-flex !important;
+  }
+}
 @utility nav-tab-link { display: inline-flex; align-items: center; }
 a.nav-tab { display: inline-flex; align-items: center; white-space: nowrap; }
 @utility flow-block { position: absolute; left: 4.5rem; right: 1rem; border: 2px solid var(--grid); padding: 0.4rem 0.7rem; overflow: hidden; }
@@ -394,8 +467,8 @@ a.nav-tab { display: inline-flex; align-items: center; white-space: nowrap; }
 .grid-panel .task-row { background: var(--panel); }
 
 /* ---------- Shell: sidebar wall + page recomposition ---------- */
-@utility shell-grid { display: grid; grid-template-columns: 260px minmax(0,1fr); min-height: calc(100vh - 72px); background: var(--grid); }
-@utility sidebar-wall { display: flex; flex-direction: column; gap: 5px; background: var(--grid); min-height: calc(100vh - 72px); }
+@utility shell-grid { display: grid; grid-template-columns: 260px minmax(0,1fr); flex: 1 1 0%; min-height: 0; min-width: 0; height: 100%; background: var(--grid); overflow: hidden; }
+@utility sidebar-wall { display: flex; flex-direction: column; gap: 5px; background: var(--grid); height: 100%; min-height: 0; overflow: hidden; }
 @utility sidebar-cell { flex-basis: 0; min-height: 0; overflow: hidden; transition: flex-grow 900ms cubic-bezier(.7,0,.2,1); }
 @utility tree-row { display: flex; align-items: center; gap: 0.6rem; height: 2rem; padding-inline: 0.4rem; font-size: 0.85rem; font-weight: 500; transition: background 150ms ease, transform 150ms ease; &:hover { background: var(--muted); transform: translateX(3px); } }
 @utility tree-count { font-size: 0.6rem; font-weight: 700; color: var(--muted-foreground); }
@@ -403,7 +476,7 @@ a.nav-tab { display: inline-flex; align-items: center; white-space: nowrap; }
 @utility nav-num { margin-right: 0.45rem; font-size: 0.55rem; color: var(--muted-foreground); }
 .nav-tab { font-size: 0.72rem; letter-spacing: 0.16em; }
 /* Each page's blocks fly in from scattered offsets and lock into the new composition. */
-@utility page-assemble { & > * > * { animation: assemble 820ms cubic-bezier(.7,0,.2,1) both; } & > * > *:nth-child(2) { animation-delay: 90ms; --ax: 60px; --ay: -40px; } & > * > *:nth-child(3) { animation-delay: 180ms; --ax: -50px; --ay: 70px; } & > * > *:nth-child(4) { animation-delay: 260ms; --ax: 80px; --ay: 50px; } }
+@utility page-assemble { height: 100%; min-height: 0; min-width: 0; overflow: hidden; & > * > * { animation: assemble 820ms cubic-bezier(.7,0,.2,1) both; } & > * > *:nth-child(2) { animation-delay: 90ms; --ax: 60px; --ay: -40px; } & > * > *:nth-child(3) { animation-delay: 180ms; --ax: -50px; --ay: 70px; } & > * > *:nth-child(4) { animation-delay: 260ms; --ax: 80px; --ay: 50px; } }
 @keyframes assemble { from { opacity: 0; transform: translate(var(--ax, -70px), var(--ay, 40px)) scale(.82); clip-path: inset(18% 18% 18% 18%); } 60% { opacity: 1; } to { opacity: 1; transform: none; clip-path: inset(0); } }
 @media (prefers-reduced-motion: reduce) { .sidebar-cell { transition: none; } }
 
