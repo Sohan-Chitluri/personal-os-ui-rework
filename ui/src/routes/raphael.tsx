@@ -277,7 +277,7 @@ export function RaphaelChatPage({ api = raphaelApi }: { api?: RaphaelApiClient }
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="font-display text-sm uppercase tracking-wider">
-                  {activeConversation?.title || "Raphael"}
+                  Raphael Agent
                 </h1>
                 <span className="flex items-center gap-1 border border-grid/60 bg-panel px-1.5 py-0.5 font-mono text-[9px] font-semibold text-foreground">
                   <span className="size-1.5 rounded-full bg-emerald-500 animate-pulse" />
