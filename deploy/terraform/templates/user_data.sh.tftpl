@@ -98,6 +98,8 @@ HERMES_ADAPTER=live
 HERMES_BINARY_PATH=/usr/local/bin/hermes
 HERMES_SKILL_NAME=personal-os
 HERMES_TIMEOUT_SECONDS=90.0
+HERMES_MODEL=nvidia/nemotron-3.5-lightning:free
+HERMES_PROVIDER=openrouter
 QUEUE_BACKEND=sqs
 SQS_QUEUE_URL=${sqs_queue_url}
 SQS_REGION=${aws_region}
@@ -109,6 +111,18 @@ SQS_MAX_MESSAGES=1
 DATABASE_URL=postgresql+asyncpg://$${DB_USER}:$${DB_PASS_ENC}@${rds_endpoint}:5432/personalos?sslmode=require
 EOF
 install -d -m 0700 -o app -g app /opt/personal-os/.hermes
+cat << 'CONFIG_EOF' > /opt/personal-os/.hermes/config.yaml
+model: nvidia/nemotron-3.5-lightning:free
+display:
+  show_reasoning: false
+platform_toolsets:
+  cli:
+    - clarify
+    - memory
+    - session_search
+CONFIG_EOF
+chmod 0600 /opt/personal-os/.hermes/config.yaml
+chown app:app /opt/personal-os/.hermes/config.yaml
 if [[ -n "$${OPENROUTER_KEY}" ]]; then
   echo "OPENROUTER_API_KEY=$${OPENROUTER_KEY}" > /opt/personal-os/.hermes/.env
   chmod 0600 /opt/personal-os/.hermes/.env

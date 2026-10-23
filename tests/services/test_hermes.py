@@ -6,13 +6,17 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from personal_os.config import Settings
 from personal_os.services.hermes import (
     HermesConnectionError,
     HermesError,
     HermesTimeoutError,
     LiveHermesClient,
     MockHermesClient,
+    build_hermes_client,
+    extract_hermes_cli_error,
     parse_hermes_output,
+    sanitize_hermes_error,
     strip_hermes_reasoning,
 )
 
@@ -268,6 +272,83 @@ async def test_live_hermes_client_surfaces_cli_argument_errors_clearly():
     err_str = str(exc_info.value)
     assert "hermes: error: unrecognized arguments: --bogus-flag" in err_str
     assert "usage:" not in err_str
+
+
+def test_extract_hermes_cli_error_ignores_session_id_on_stderr_and_finds_stdout_error():
+    """Exact staging failure regression: session_id on stderr must not mask stdout error."""
+    stdout = (
+        "API call failed after 3 retries: HTTP 404: The free launch period for "
+        "MiniMax M3.1 Flash ended on Oct 22, 2026. The `:free` variant has been retired; "
+        "use `minimax/minimax-m3.1-flash` (list price: $0.15/M input, $0.60/M output) instead.\n"
+    )
+    stderr = "\nsession_id: 20261023_020851_35888d\n"
+    extracted = extract_hermes_cli_error(stdout, stderr, returncode=1)
+
+    assert "session_id:" not in extracted
+    assert "API call failed after 3 retries" in extracted
+    assert "HTTP 404" in extracted
+
+
+def test_extract_hermes_cli_error_fallback_to_exit_code():
+    stdout = ""
+    stderr = "session_id: 20261023_020851_35888d\n"
+    extracted = extract_hermes_cli_error(stdout, stderr, returncode=1)
+    assert extracted == "Process exited with code 1"
+
+
+def test_sanitize_hermes_error_redacts_secrets_and_paths():
+    raw_error = (
+        "Failed to connect at /opt/personal-os/.hermes/agent.py with "
+        "key sk-or-v1-abcdef1234567890 and Bearer eyJhbGciOiJIUzI1NiJ9.user_3FWWD3lCNPy0FHDOtPboH4juYjo"
+    )
+    sanitized = sanitize_hermes_error(raw_error)
+    assert "/opt/personal-os" not in sanitized
+    assert "[internal path]" in sanitized
+    assert "sk-or-v1-abcdef1234567890" not in sanitized
+    assert "[REDACTED_KEY]" in sanitized
+    assert "Bearer [REDACTED_TOKEN]" in sanitized
+    assert "user_3FWWD3lCNPy0FHDOtPboH4juYjo" not in sanitized
+
+
+def test_build_hermes_client_wires_configured_model_and_provider():
+    settings = Settings(
+        hermes_adapter="live",
+        hermes_model="nvidia/nemotron-3.5-lightning:free",
+        hermes_provider="openrouter",
+    )
+    client = build_hermes_client(settings)
+    assert isinstance(client, LiveHermesClient)
+    assert client.default_model == "nvidia/nemotron-3.5-lightning:free"
+    assert client.default_provider == "openrouter"
+
+    cmd = client.build_command(prompt="test message")
+    assert "-m" in cmd
+    assert cmd[cmd.index("-m") + 1] == "nvidia/nemotron-3.5-lightning:free"
+    assert "--provider" in cmd
+    assert cmd[cmd.index("--provider") + 1] == "openrouter"
+
+
+@pytest.mark.asyncio
+async def test_live_hermes_client_surfaces_actual_error_when_session_id_in_stderr():
+    """LiveHermesClient raises HermesConnectionError with real error, not session_id."""
+    client = LiveHermesClient(binary_path="/home/peskybird/.local/bin/hermes")
+
+    mock_proc = AsyncMock()
+    mock_proc.returncode = 1
+    mock_proc.communicate.return_value = (
+        b"API call failed after 3 retries: HTTP 404: The free launch period has ended\n",
+        b"\nsession_id: 20261023_020851_35888d\n",
+    )
+
+    with (
+        patch("asyncio.create_subprocess_exec", return_value=mock_proc),
+        pytest.raises(HermesConnectionError) as exc_info,
+    ):
+        await client.send_message("hey there")
+
+    err = str(exc_info.value)
+    assert "session_id:" not in err
+    assert "HTTP 404: The free launch period has ended" in err
 
 
 @pytest.mark.asyncio

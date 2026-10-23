@@ -21,6 +21,7 @@ from personal_os.services.hermes import (
     HermesConnectionError,
     HermesError,
     HermesTimeoutError,
+    sanitize_hermes_error,
 )
 from personal_os.services.raphael import RaphaelService
 
@@ -220,17 +221,17 @@ async def send_message(
     except HermesTimeoutError as exc:
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail=f"Hermes agent timed out: {exc}",
+            detail=f"Hermes agent timed out: {sanitize_hermes_error(str(exc))}",
         ) from exc
     except HermesConnectionError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Hermes agent is unavailable: {exc}",
+            detail=f"Hermes agent is unavailable: {sanitize_hermes_error(str(exc))}",
         ) from exc
     except HermesError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Hermes agent failed: {exc}",
+            detail=f"Hermes agent failed: {sanitize_hermes_error(str(exc))}",
         ) from exc
 
     return SendMessageResponse(

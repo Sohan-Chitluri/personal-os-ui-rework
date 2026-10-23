@@ -97,6 +97,62 @@ def parse_hermes_output(output: str, stderr: str = "") -> tuple[str, str | None]
     return reply, session_id
 
 
+def extract_hermes_cli_error(stdout: str, stderr: str, returncode: int | None = None) -> str:
+    """Extract a clean, informative error message from Hermes CLI stdout and stderr.
+
+    In Hermes CLI quiet mode (-Q), metadata such as 'session_id: <id>' and resume banners
+    are written to stderr. These lines must not be mistaken for the actual error message.
+    """
+    metadata_patterns = [
+        re.compile(r"^session_id:\s*\S+", re.IGNORECASE),
+        re.compile(r"^↻\s*Resumed session", re.IGNORECASE),
+        re.compile(r"^Session\s+\S+\s+found but has no messages", re.IGNORECASE),
+    ]
+
+    candidate_lines: list[str] = []
+    for chunk in (stderr, stdout):
+        for raw_line in chunk.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            if any(pat.search(line) for pat in metadata_patterns):
+                continue
+            candidate_lines.append(line)
+
+    if not candidate_lines:
+        code_str = str(returncode) if returncode is not None else "1"
+        return f"Process exited with code {code_str}"
+
+    # Priority 1: Lines containing explicit error / failure indicators
+    error_patterns = [
+        re.compile(r"^API call failed.*", re.IGNORECASE),
+        re.compile(r"HTTP \d{3}:?.*", re.IGNORECASE),
+        re.compile(r"error:.*", re.IGNORECASE),
+        re.compile(r".*error:.*", re.IGNORECASE),
+        re.compile(r".*failed.*", re.IGNORECASE),
+        re.compile(r".*exception:?.*", re.IGNORECASE),
+    ]
+
+    for pattern in error_patterns:
+        matches = [line for line in candidate_lines if pattern.search(line)]
+        if matches:
+            return matches[-1]
+
+    return candidate_lines[-1]
+
+
+def sanitize_hermes_error(error_msg: str) -> str:
+    """Sanitize error messages to avoid leaking filesystem paths, tokens, or credentials."""
+    # Redact API keys and bearer tokens
+    cleaned = re.sub(r"sk-[a-zA-Z0-9_\-]{8,}", "[REDACTED_KEY]", error_msg)
+    cleaned = re.sub(r"Bearer\s+[a-zA-Z0-9_\-\.]{8,}", "Bearer [REDACTED_TOKEN]", cleaned)
+    # Redact filesystem paths
+    cleaned = re.sub(r"/(?:opt|etc|home|var|usr|root)/[^\s,;\"']+", "[internal path]", cleaned)
+    # Redact user IDs
+    cleaned = re.sub(r"user_[a-zA-Z0-9]{15,}", "[user_id]", cleaned)
+    return cleaned.strip()
+
+
 @runtime_checkable
 class HermesClient(Protocol):
     """Protocol defining the Hermes runtime invocation interface."""
@@ -250,25 +306,20 @@ class LiveHermesClient:
         stderr = stderr_bytes.decode("utf-8", errors="replace")
 
         if proc.returncode != 0:
-            clean_error = (
-                stderr.strip() or stdout.strip() or f"Process exited with code {proc.returncode}"
-            )
-            # Extract specific error line if preceded by usage text so CLI argument errors
-            # are surfaced clearly.
-            error_lines = [
-                line.strip() for line in clean_error.splitlines() if "error:" in line.lower()
-            ]
-            error_msg = error_lines[-1] if error_lines else clean_error
-            log.warning("Hermes CLI failed (code %d): %s", proc.returncode, error_msg)
-            raise HermesConnectionError(f"Hermes runtime error: {error_msg}")
+            error_msg = extract_hermes_cli_error(stdout, stderr, proc.returncode)
+            sanitized = sanitize_hermes_error(error_msg)
+            log.warning("Hermes CLI failed (code %d): %s", proc.returncode, sanitized)
+            raise HermesConnectionError(f"Hermes runtime error: {sanitized}")
 
         reply, parsed_session_id = parse_hermes_output(stdout, stderr=stderr)
         effective_session_id = parsed_session_id or session_id
 
         if not reply:
-            if stderr.strip():
+            non_meta_stderr = extract_hermes_cli_error("", stderr, 0)
+            if non_meta_stderr and not non_meta_stderr.startswith("Process exited"):
+                sanitized_err = sanitize_hermes_error(non_meta_stderr)
                 raise HermesConnectionError(
-                    f"Hermes returned error without response: {stderr.strip()}"
+                    f"Hermes returned error without response: {sanitized_err}"
                 )
             raise HermesConnectionError("Hermes returned an empty response")
 
@@ -815,4 +866,6 @@ def build_hermes_client(settings: Settings) -> HermesClient:
     return LiveHermesClient(
         binary_path=settings.hermes_binary_path,
         default_skill=settings.hermes_skill_name,
+        default_model=settings.hermes_model,
+        default_provider=settings.hermes_provider,
     )

@@ -110,6 +110,8 @@ class Settings(BaseSettings):
     hermes_binary_path: str = "hermes"
     hermes_timeout_seconds: float = 90.0
     hermes_skill_name: str = "personal-os"
+    hermes_model: str = "nvidia/nemotron-3.5-lightning:free"
+    hermes_provider: str = "openrouter"
 
     # --- GitHub Integration ---
     github_public_username: str | None = None
