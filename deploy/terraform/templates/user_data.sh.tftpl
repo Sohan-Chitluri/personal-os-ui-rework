@@ -116,10 +116,7 @@ model: nvidia/nemotron-3.5-lightning:free
 display:
   show_reasoning: false
 platform_toolsets:
-  cli:
-    - clarify
-    - memory
-    - session_search
+  cli: []
 CONFIG_EOF
 chmod 0600 /opt/personal-os/.hermes/config.yaml
 chown app:app /opt/personal-os/.hermes/config.yaml
