@@ -103,8 +103,20 @@ async def list_captures(
         limit=limit,
         offset=offset,
     )
+    if hasattr(service, "count_captures"):
+        total = await service.count_captures(
+            owner_id=current_user.id,
+            status=status_filter,
+        )
+    elif hasattr(service, "count_for_owner"):
+        total = await service.count_for_owner(
+            owner_id=current_user.id,
+            status=status_filter,
+        )
+    else:
+        total = len(captures)
     items = await status_service.enrich_captures(current_user.id, captures)
-    return CaptureListResponse(items=items, total=len(items))
+    return CaptureListResponse(items=items, total=total)
 
 
 @router.get(

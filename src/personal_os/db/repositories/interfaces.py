@@ -158,6 +158,14 @@ class CaptureRepository(Protocol):
         offset: int = 0,
     ) -> Sequence[Capture]: ...
 
+    async def count_for_owner(
+        self,
+        owner_id: str,
+        *,
+        status: str | None = None,
+        include_deleted: bool = False,
+    ) -> int: ...
+
     async def update(
         self,
         capture_id: str,

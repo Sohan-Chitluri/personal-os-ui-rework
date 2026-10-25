@@ -352,6 +352,12 @@ class CaptureServiceImpl(_BaseService):
         await self._ensure_user(owner_id)
         return await self.captures.list_for_owner(owner_id, **filters)
 
+    async def count_captures(self, owner_id: str, **filters: Any) -> int:
+        await self._ensure_user(owner_id)
+        if hasattr(self.captures, "count_for_owner"):
+            return await self.captures.count_for_owner(owner_id, **filters)
+        return len(await self.captures.list_for_owner(owner_id, **filters))
+
     async def delete_capture(
         self,
         owner_id: str,

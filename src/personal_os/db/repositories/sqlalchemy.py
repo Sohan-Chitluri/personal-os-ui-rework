@@ -405,6 +405,20 @@ class SqlCaptureRepository(_Repo):
         stmt = stmt.order_by(m.Capture.created_at.desc()).limit(limit).offset(offset)
         return (await self.session.execute(stmt)).scalars().all()
 
+    async def count_for_owner(
+        self,
+        owner_id: str,
+        *,
+        status: str | None = None,
+        include_deleted: bool = False,
+    ) -> int:
+        stmt = select(func.count()).select_from(m.Capture).where(m.Capture.owner_id == owner_id)
+        if not include_deleted:
+            stmt = stmt.where(m.Capture.deleted_at.is_(None))
+        if status is not None:
+            stmt = stmt.where(m.Capture.status == status)
+        return await self.session.scalar(stmt) or 0
+
     async def update(
         self,
         capture_id: str,

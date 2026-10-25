@@ -199,3 +199,35 @@ async def test_capture_owner_scoping(auth_client: AsyncClient, other_client: Asy
     # User B attempts to delete capture -> 404
     other_del = await other_client.delete(f"/api/v1/captures/{capture_id}")
     assert other_del.status_code == 404
+
+
+async def test_capture_list_pagination_and_total_count(auth_client: AsyncClient):
+    """Capture list endpoint reports true total matching count across multiple pages and filters."""
+    # Submit 5 captures
+    for i in range(5):
+        resp = await auth_client.post(
+            "/api/v1/captures",
+            json={"content": f"Pagination test note {i}"},
+        )
+        assert resp.status_code == 201
+
+    # Page 1: limit 2, offset 0
+    p1 = await auth_client.get("/api/v1/captures?limit=2&offset=0")
+    assert p1.status_code == 200
+    data1 = p1.json()
+    assert len(data1["items"]) == 2
+    assert data1["total"] >= 5
+
+    # Page 2: limit 2, offset 2
+    p2 = await auth_client.get("/api/v1/captures?limit=2&offset=2")
+    assert p2.status_code == 200
+    data2 = p2.json()
+    assert len(data2["items"]) == 2
+    assert data2["total"] == data1["total"]
+
+    # Filter with no matching records returns total=0 and items=[]
+    p_none = await auth_client.get("/api/v1/captures?status=nonexistent_status_12345")
+    assert p_none.status_code == 200
+    data_none = p_none.json()
+    assert data_none["items"] == []
+    assert data_none["total"] == 0

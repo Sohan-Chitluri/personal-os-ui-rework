@@ -155,6 +155,13 @@ class CaptureService(Protocol):
         offset: int = 0,
     ) -> Sequence[Capture]: ...
 
+    async def count_captures(
+        self,
+        owner_id: str,
+        *,
+        status: str | None = None,
+    ) -> int: ...
+
     async def delete_capture(self, owner_id: str, capture_id: str) -> None: ...
 
     async def recover_pending_captures(self, *, limit: int = 100) -> int: ...
