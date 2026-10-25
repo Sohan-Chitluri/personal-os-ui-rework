@@ -74,3 +74,14 @@ async def test_openapi_spec_available(client: AsyncClient):
     assert "/api/v1/tasks" in paths
     assert "/api/v1/captures" in paths
     assert "/api/v1/processing/{job_id}" in paths
+
+
+async def test_cors_preflight_allows_port_8080(client: AsyncClient):
+    """CORS preflight request from localhost:8080 succeeds with correct access-control headers."""
+    headers = {
+        "Origin": "http://localhost:8080",
+        "Access-Control-Request-Method": "GET",
+    }
+    res = await client.options("/api/v1/health", headers=headers)
+    assert res.status_code == 200
+    assert res.headers.get("access-control-allow-origin") == "http://localhost:8080"
