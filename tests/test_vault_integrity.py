@@ -109,3 +109,74 @@ def test_delete_file_without_git_repo(tmp_path):
     # Should delete file cleanly without AttributeError: 'NoneType' object has no attribute 'index'
     vm.delete_file(test_file, commit=True)
     assert not test_file.exists()
+
+
+def test_list_projects_nonexistent_directory(temp_vault):
+    """list_projects safely returns [] if 02-Projects directory does not exist."""
+    vm = temp_vault
+    if vm.config.projects_dir.exists():
+        import shutil
+        shutil.rmtree(vm.config.projects_dir)
+    assert not vm.config.projects_dir.exists()
+    assert vm.list_projects() == []
+
+
+def test_list_projects_empty_directory(temp_vault):
+    """list_projects safely returns [] if 02-Projects directory exists but has no projects."""
+    vm = temp_vault
+    vm.config.projects_dir.mkdir(parents=True, exist_ok=True)
+    assert vm.list_projects() == []
+
+
+def test_list_projects_populated_directory(temp_vault):
+    """list_projects returns metadata for populated projects."""
+    vm = temp_vault
+    vm.create_project("ProjectAlpha", "First project")
+    vm.create_project("ProjectBeta", "Second project")
+
+    projects = vm.list_projects()
+    assert len(projects) == 2
+    names = [p["name"] for p in projects]
+    assert "ProjectAlpha" in names
+    assert "ProjectBeta" in names
+
+
+def test_atomic_write_normal_and_replacement(temp_vault):
+    """atomic_write cleanly creates a new file and atomically replaces an existing file."""
+    vm = temp_vault
+    target_path = vm.config.root / "atomic_test.md"
+
+    # Initial write
+    with vm.atomic_write(target_path) as tmp:
+        tmp.write_text("First version", encoding="utf-8")
+
+    assert target_path.exists()
+    assert target_path.read_text(encoding="utf-8") == "First version"
+
+    # Replacement write
+    with vm.atomic_write(target_path) as tmp:
+        tmp.write_text("Second version", encoding="utf-8")
+
+    assert target_path.read_text(encoding="utf-8") == "Second version"
+
+    # Verify no temp files leaked
+    tmp_files = list(vm.config.root.glob(".*.tmp"))
+    assert tmp_files == []
+
+
+def test_atomic_write_exception_cleans_up_temp_and_preserves_original(temp_vault):
+    """When an exception occurs during atomic_write, the temp file is unlinked and original file is preserved."""
+    vm = temp_vault
+    target_path = vm.config.root / "resilient.md"
+    target_path.write_text("Unchanged baseline", encoding="utf-8")
+
+    with pytest.raises(RuntimeError, match="Crash during write"), vm.atomic_write(target_path) as tmp:
+        tmp.write_text("Corrupted write", encoding="utf-8")
+        raise RuntimeError("Crash during write")
+
+    # Original content preserved
+    assert target_path.read_text(encoding="utf-8") == "Unchanged baseline"
+
+    # Temp file was cleaned up
+    tmp_files = list(vm.config.root.glob(".*.tmp"))
+    assert tmp_files == []

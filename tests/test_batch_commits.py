@@ -422,19 +422,47 @@ class TestExistingSingleWriteCallers:
         assert "Delete to_delete.md" in commits[0].message
     
     def test_create_project_without_batch(self, temp_vault):
-        """create_project still works (commits each file + final commit)."""
+        """create_project creates all template files in a single atomic commit."""
         vm = temp_vault
+        initial_commits = len(list(vm._repo.iter_commits()))
         
         project_dir = vm.create_project("NewProject", "Description")
         
         assert project_dir.exists()
         assert (project_dir / "README.md").exists()
         assert (project_dir / "Tasks.md").exists()
+        assert (project_dir / "Progress.md").exists()
+        assert (project_dir / "Architecture.md").exists()
+        assert (project_dir / "Decisions.md").exists()
+        assert (project_dir / "Notes.md").exists()
+        assert (project_dir / "Research.md").exists()
+        assert (project_dir / "Timeline.md").exists()
         
-        # Should have commits for each file + final project commit
+        # Exactly one atomic commit containing all generated files
         commits = list(vm._repo.iter_commits())
-        create_commits = [c for c in commits if "Create project" in c.message or "Update" in c.message]
-        assert len(create_commits) >= 8  # README + 7 standard files + final commit
+        assert len(commits) == initial_commits + 1
+        assert "Create project: NewProject" in commits[0].message
+
+    def test_create_project_failure_rollback_cleanup(self, temp_vault, monkeypatch):
+        """When project creation fails partway, directory is cleaned up and index is reset."""
+        vm = temp_vault
+        initial_commits = len(list(vm._repo.iter_commits()))
+        
+        # Simulate error during write_file for Timeline.md
+        orig_write = vm.write_file
+        def failing_write(path, content, **kwargs):
+            if "Timeline.md" in str(path):
+                raise IOError("Disk write simulation failure")
+            return orig_write(path, content, **kwargs)
+        
+        monkeypatch.setattr(vm, "write_file", failing_write)
+        
+        with pytest.raises(IOError, match="Disk write simulation failure"):
+            vm.create_project("FailingProject", "Description")
+        
+        # Verify rollback: project dir removed, no commit added
+        assert not (vm.config.projects_dir / "FailingProject").exists()
+        assert len(list(vm._repo.iter_commits())) == initial_commits
 
 
 if __name__ == "__main__":

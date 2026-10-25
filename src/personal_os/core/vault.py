@@ -145,21 +145,23 @@ class VaultManager:
     def atomic_write(self, path: Path):
         """Context manager for atomic file writes."""
         path.parent.mkdir(parents=True, exist_ok=True)
-        with tempfile.NamedTemporaryFile(
+        tf = tempfile.NamedTemporaryFile(
             mode='w',
             dir=path.parent,
             prefix=f".{path.name}.",
             suffix=".tmp",
             delete=False,
             encoding='utf-8'
-        ) as tf:
-            temp_path = Path(tf.name)
-            try:
-                yield temp_path
-                temp_path.replace(path)  # Atomic on POSIX
-            except Exception:
-                temp_path.unlink(missing_ok=True)
-                raise
+        )
+        temp_path = Path(tf.name)
+        # Close the descriptor immediately so caller can write to temp_path without fd collision
+        tf.close()
+        try:
+            yield temp_path
+            temp_path.replace(path)  # Atomic replacement
+        except Exception:
+            temp_path.unlink(missing_ok=True)
+            raise
     
     # ========== Batch Commit API ==========
     
@@ -396,6 +398,8 @@ class VaultManager:
     
     def list_projects(self) -> List[Dict[str, Any]]:
         """List all projects with metadata."""
+        if not self.config.projects_dir.exists():
+            return []
         projects = []
         for project_dir in self.config.projects_dir.iterdir():
             if project_dir.is_dir() and not project_dir.name.startswith('.'):
@@ -505,10 +509,16 @@ class VaultManager:
                 self.write_file(project_dir / fname, header, commit=False)
             
             if self._repo:
-                self._repo.index.add([str(p.relative_to(self.config.root)) for p in project_dir.rglob("*")])
+                staged_files = [str(p.relative_to(self.config.root)) for p in project_dir.rglob("*") if p.is_file()]
+                self._repo.index.add(staged_files)
                 self._repo.index.commit(f"Create project: {name}")
         except Exception:
             import shutil
+            if self._repo:
+                try:
+                    self._repo.index.reset()
+                except Exception:
+                    pass
             if project_dir.exists():
                 shutil.rmtree(project_dir)
             raise
