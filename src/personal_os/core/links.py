@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import re
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -29,6 +29,9 @@ class NoteInfo:
     rel_path: str
     stem: str
     title: str = ""
+    content: str = ""
+    mtime: float = 0.0
+    wikilinks: list[str] = field(default_factory=list)
 
 
 def _extract_title_from_content(content: str, fallback: str) -> str:
@@ -61,17 +64,109 @@ class LinkIndex:
         self.notes: Dict[str, NoteInfo] = {}
         self.rebuild()
 
-    def rebuild(self) -> None:
-        """Scan vault and populate note index."""
-        self.notes = {}
+    def rebuild(self, force: bool = False) -> None:
+        """Scan vault and populate note index, caching note content and wikilinks."""
+        observed_rel_paths: set[str] = set()
         for md_file in self.root.rglob("*.md"):
             try:
                 rel = str(md_file.relative_to(self.root))
             except ValueError:
                 rel = str(md_file)
+            observed_rel_paths.add(rel)
+
+            try:
+                mtime = md_file.stat().st_mtime
+            except OSError:
+                continue
+
+            # Cache hit: reuse cached content if file has not been modified
+            if not force and rel in self.notes and self.notes[rel].mtime == mtime:
+                continue
+
+            try:
+                content = md_file.read_text(encoding="utf-8")
+            except Exception:
+                content = ""
+
             stem = md_file.stem
-            title = _extract_title_from_file(md_file, stem)
-            self.notes[rel] = NoteInfo(path=md_file, rel_path=rel, stem=stem, title=title)
+            title = _extract_title_from_content(content, stem)
+            wikilinks = [
+                raw_link.split("|")[0].split("#")[0].strip()
+                for raw_link in re.findall(r"\[\[([^\]]+)\]\]", content)
+            ]
+            self.notes[rel] = NoteInfo(
+                path=md_file,
+                rel_path=rel,
+                stem=stem,
+                title=title,
+                content=content,
+                mtime=mtime,
+                wikilinks=wikilinks,
+            )
+
+        # Invalidate deleted notes no longer present on filesystem
+        deleted_keys = [k for k in self.notes if k not in observed_rel_paths]
+        for k in deleted_keys:
+            del self.notes[k]
+
+    def invalidate(self, path: Path | str) -> None:
+        """Explicitly invalidate or refresh a single note in the index."""
+        p = Path(path)
+        try:
+            rel = str(p.relative_to(self.root)) if p.is_absolute() else str(p)
+        except ValueError:
+            rel = str(p)
+
+        full_path = p if p.is_absolute() else (self.root / p)
+        if not full_path.exists() or not full_path.is_file():
+            self.notes.pop(rel, None)
+            return
+
+        try:
+            mtime = full_path.stat().st_mtime
+            content = full_path.read_text(encoding="utf-8")
+            stem = full_path.stem
+            title = _extract_title_from_content(content, stem)
+            wikilinks = [
+                raw_link.split("|")[0].split("#")[0].strip()
+                for raw_link in re.findall(r"\[\[([^\]]+)\]\]", content)
+            ]
+            self.notes[rel] = NoteInfo(
+                path=full_path,
+                rel_path=rel,
+                stem=stem,
+                title=title,
+                content=content,
+                mtime=mtime,
+                wikilinks=wikilinks,
+            )
+        except Exception:
+            self.notes.pop(rel, None)
+
+    def get_content(self, path: Path | str) -> str:
+        """Get note content from cache, verifying mtime to prevent stale reads."""
+        p = Path(path)
+        try:
+            rel = str(p.relative_to(self.root)) if p.is_absolute() else str(p)
+        except ValueError:
+            rel = str(p)
+
+        cached = self.notes.get(rel)
+        full_path = p if p.is_absolute() else (self.root / p)
+
+        try:
+            current_mtime = full_path.stat().st_mtime
+        except OSError:
+            if cached:
+                self.notes.pop(rel, None)
+            return ""
+
+        if cached is not None and cached.mtime == current_mtime:
+            return cached.content
+
+        self.invalidate(full_path)
+        refreshed = self.notes.get(rel)
+        return refreshed.content if refreshed else ""
 
 
 class LinkGraph:
@@ -156,11 +251,19 @@ class LinkGraph:
         results: List[Dict[str, object]] = []
         query_lower = query.lower()
 
-        for rel_path, md_file, _ in self._iter_notes():
-            try:
-                content = md_file.read_text(encoding="utf-8")
-            except Exception:
+        for rel_path, md_file, note_info in self._iter_notes():
+            content = getattr(note_info, "content", None)
+            if content is None:
+                if hasattr(self, "index") and hasattr(self.index, "get_content"):
+                    content = self.index.get_content(md_file)
+                else:
+                    try:
+                        content = md_file.read_text(encoding="utf-8")
+                    except Exception:
+                        continue
+            if not content:
                 continue
+
             content_lower = content.lower()
             score = content_lower.count(query_lower)
             if score == 0:
@@ -196,17 +299,29 @@ class LinkGraph:
         notes_metadata: Dict[str, Tuple[str, str]] = {}  # rel_path -> (stem, title)
 
         for rel_path, md_file, note_info in self._iter_notes():
-            try:
-                content = md_file.read_text(encoding="utf-8")
-            except Exception:
-                continue
-
             stem = Path(rel_path).stem
-            title = getattr(note_info, "title", None) or _extract_title_from_content(content, stem)
+            title = getattr(note_info, "title", None)
+            wikilinks = getattr(note_info, "wikilinks", None)
+
+            if wikilinks is None or title is None:
+                content = getattr(note_info, "content", None)
+                if content is None:
+                    if hasattr(self, "index") and hasattr(self.index, "get_content"):
+                        content = self.index.get_content(md_file)
+                    else:
+                        try:
+                            content = md_file.read_text(encoding="utf-8")
+                        except Exception:
+                            continue
+                title = title or _extract_title_from_content(content, stem)
+                wikilinks = [
+                    raw_link.split("|")[0].split("#")[0].strip()
+                    for raw_link in re.findall(r"\[\[([^\]]+)\]\]", content)
+                ]
+
             notes_metadata[rel_path] = (stem, title)
 
-            for raw_link in re.findall(r"\[\[([^\]]+)\]\]", content):
-                target = raw_link.split("|")[0].split("#")[0].strip()
+            for target in wikilinks:
                 outgoing[rel_path].add(target)
                 incoming[target].add(rel_path)
                 incoming[target.lower()].add(rel_path)

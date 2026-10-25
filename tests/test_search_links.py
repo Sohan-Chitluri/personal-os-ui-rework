@@ -129,3 +129,72 @@ def test_suggest_links_and_create_hub(temp_vault: VaultManager):
     hub_path = temp_vault.config.root / hub_rel
     assert hub_path.exists()
     assert "# Dsp Hub" in hub_path.read_text()
+
+
+def test_link_index_cache_reuse_and_invalidation(temp_vault: VaultManager, monkeypatch):
+    """LinkIndex caches note content and wikilinks; repeated queries do not re-read from disk."""
+    notes_dir = temp_vault.config.root / "01-Notes"
+    notes_dir.mkdir(parents=True)
+
+    n1 = notes_dir / "Alpha.md"
+    n1.write_text("# Alpha\nMentions [[Beta]] and FPGA technology.\n", encoding="utf-8")
+
+    n2 = notes_dir / "Beta.md"
+    n2.write_text("# Beta\nMentions FPGA architecture.\n", encoding="utf-8")
+
+    index = LinkIndex(temp_vault.config.root)
+    graph = LinkGraph(vault=temp_vault, index=index)
+
+    # First query works
+    res1 = graph.find_related_notes("FPGA")
+    assert len(res1) == 2
+
+    # Instrument Path.read_text to count disk reads
+    read_calls = []
+    orig_read_text = Path.read_text
+
+    def counted_read_text(self, *args, **kwargs):
+        read_calls.append(str(self))
+        return orig_read_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", counted_read_text)
+
+    # Subsequent queries reuse cached content and wikilinks without re-reading
+    res2 = graph.find_related_notes("FPGA")
+    assert len(res2) == 2
+    orphans = graph.find_orphans()
+    orphan_files = [o["file"] for o in orphans]
+    assert "01-Notes/Alpha.md" not in orphan_files
+    assert "01-Notes/Beta.md" not in orphan_files
+    assert len(read_calls) == 0  # Zero disk reads!
+
+
+def test_link_index_handles_edits_and_deletions(temp_vault: VaultManager):
+    """Note edits update cache on mtime change, and deletions are pruned from index."""
+    notes_dir = temp_vault.config.root / "01-Notes"
+    notes_dir.mkdir(parents=True)
+
+    n1 = notes_dir / "Note1.md"
+    n1.write_text("# Note 1\nInitial content.\n", encoding="utf-8")
+
+    index = LinkIndex(temp_vault.config.root)
+    graph = LinkGraph(vault=temp_vault, index=index)
+
+    assert len(graph.find_related_notes("UpdatedKeyword")) == 0
+
+    # Edit note and update mtime
+    import time
+    time.sleep(0.01)
+    n1.write_text("# Note 1\nNow contains UpdatedKeyword.\n", encoding="utf-8")
+
+    # Rebuild detects mtime change and refreshes cache
+    index.rebuild()
+    res = graph.find_related_notes("UpdatedKeyword")
+    assert len(res) == 1
+    assert "01-Notes/Note1.md" in str(res[0]["file"])
+
+    # Delete note
+    n1.unlink()
+    index.rebuild()
+    assert len(graph.find_related_notes("UpdatedKeyword")) == 0
+    assert "01-Notes/Note1.md" not in index.notes
