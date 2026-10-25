@@ -19,7 +19,6 @@ class KnowledgeView(WorkspaceView):
     title = "Knowledge"
 
     def compose(self):
-        from textual.app import ComposeResult
         from textual.widgets import Static
         yield Static(
             f"[bold #a78bfa]{self.title}[/]\n\n"
@@ -34,7 +33,6 @@ class ReviewsView(WorkspaceView):
     title = "Reviews"
 
     def compose(self):
-        from textual.app import ComposeResult
         from textual.widgets import Static
         yield Static(
             f"[bold #a78bfa]{self.title}[/]\n\n"
@@ -49,7 +47,6 @@ class FavoritesView(WorkspaceView):
     title = "Favorites"
 
     def compose(self):
-        from textual.app import ComposeResult
         from textual.widgets import Static
         yield Static(
             f"[bold #a78bfa]{self.title}[/]\n\n"
@@ -64,7 +61,6 @@ class SettingsView(WorkspaceView):
     title = "Settings"
 
     def compose(self):
-        from textual.app import ComposeResult
         from textual.widgets import Static
         yield Static(
             f"[bold #a78bfa]{self.title}[/]\n\n"

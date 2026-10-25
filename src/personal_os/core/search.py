@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 import logging
 import re
+import fnmatch
 
 from personal_os.core.vault import get_vault, VaultManager
 
@@ -323,8 +324,18 @@ class SearchEngine:
             
             # File type filter
             if filters.file_type and filters.file_type in self.TYPE_MAP:
-                pattern = self.TYPE_MAP[filters.file_type].replace("*", "")
-                if pattern not in str(md_file):
+                glob_pat = self.TYPE_MAP[filters.file_type]
+                try:
+                    rel_str = str(md_file.relative_to(self.vault.config.root)).replace("\\", "/")
+                except ValueError:
+                    rel_str = str(md_file).replace("\\", "/")
+                norm_pat = glob_pat.replace("\\", "/")
+                if not (
+                    fnmatch.fnmatch(rel_str, norm_pat)
+                    or fnmatch.fnmatch(rel_str, f"*/{norm_pat.lstrip('*')}")
+                    or fnmatch.fnmatch(rel_str, f"**/{norm_pat.lstrip('*')}")
+                    or fnmatch.fnmatch(md_file.name, norm_pat)
+                ):
                     continue
 
             # Date filter

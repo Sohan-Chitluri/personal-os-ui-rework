@@ -22,6 +22,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from datetime import datetime
+import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
@@ -95,7 +96,6 @@ class KnowledgeExtractor:
         }
         self.project_aliases = {
             "maestro": "Maestro",
-            "router": "Maestro",
             "drone": "Drone",
             "blindguard": "BlindGuard",
             "vlsi": "VLSI",
@@ -106,13 +106,24 @@ class KnowledgeExtractor:
         }
 
     def _identify_project(self, text: str) -> Optional[str]:
-        text_lower = text.lower()
-        for alias, project in self.project_aliases.items():
-            if alias in text_lower:
-                return project
-        for project in self.vault.list_projects():
-            if project['name'].lower() in text_lower:
-                return project['name']
+        # Authoritative projects from the vault
+        vault_projects = {p['name'].lower(): p['name'] for p in self.vault.list_projects()}
+        if not vault_projects:
+            return None
+
+        # 1. Match canonical project names using word boundaries, longest names first
+        for name_lower in sorted(vault_projects.keys(), key=len, reverse=True):
+            pattern = rf"\b{re.escape(name_lower)}\b"
+            if re.search(pattern, text, re.IGNORECASE):
+                return vault_projects[name_lower]
+
+        # 2. Check explicitly configured aliases ONLY if target project exists in the vault
+        for alias, target_project in self.project_aliases.items():
+            if target_project.lower() in vault_projects:
+                pattern = rf"\b{re.escape(alias.lower())}\b"
+                if re.search(pattern, text, re.IGNORECASE):
+                    return vault_projects[target_project.lower()]
+
         return None
 
     def extract(self, text: str) -> List[Dict[str, Any]]:
@@ -219,6 +230,11 @@ class KnowledgeApplier:
             if not tasks_file.exists():
                 return [f"⚠️ No Tasks.md found in {project}"]
             content = self.vault.read_file(tasks_file)
+            if (action.capture_id and f"cid: {action.capture_id}" in content) or any(
+                line.strip().startswith(("- [ ]", "- [x]", "- [X]")) and action.title.strip().lower() in line.strip().lower()
+                for line in content.splitlines()
+            ):
+                return [f"ℹ️ Task already exists in {project}/Tasks.md: {action.title[:50]}"]
             content = self._insert_under_section(content, "## Active Tasks", entry)
             self.vault.write_file(tasks_file, content, message=f"Task: {action.title[:50]}")
             return [f"📝 Added task to {project}/Tasks.md"]
@@ -226,6 +242,11 @@ class KnowledgeApplier:
             inbox_file = self.vault.config.inbox_dir / "Tasks.md"
             inbox_file.parent.mkdir(parents=True, exist_ok=True)
             content = self.vault.read_file(inbox_file) if inbox_file.exists() else "# Inbox Tasks\n\n## Active Tasks\n"
+            if (action.capture_id and f"cid: {action.capture_id}" in content) or any(
+                line.strip().startswith(("- [ ]", "- [x]", "- [X]")) and action.title.strip().lower() in line.strip().lower()
+                for line in content.splitlines()
+            ):
+                return [f"ℹ️ Task already exists in Inbox: {action.title[:50]}"]
             content = self._insert_under_section(content, "## Active Tasks", entry)
             self.vault.write_file(inbox_file, content, message=f"Inbox task: {action.title[:50]}")
             return [f"📥 Added task to Inbox: {action.title[:60]}"]
@@ -267,6 +288,10 @@ class KnowledgeApplier:
         progress_file = project_dir / "Progress.md"
         if progress_file.exists():
             content = self.vault.read_file(progress_file)
+            if (action.capture_id and f"cid: {action.capture_id}" in content) or (
+                f"- **{timestamp}**: {action.description}" in content
+            ):
+                return [f"ℹ️ Progress already logged in {project}/Progress.md"]
             content = self._insert_under_section(content, "## Progress Log", entry)
         else:
             content = f"# {project} Progress\n\n## Progress Log\n{entry}"
@@ -286,6 +311,10 @@ class KnowledgeApplier:
         progress_file = project_dir / "Progress.md"
         if progress_file.exists():
             content = self.vault.read_file(progress_file)
+            if (action.capture_id and f"cid: {action.capture_id}" in content) or (
+                f"- **{timestamp}**: [Activity] {action.description}" in content
+            ):
+                return [f"ℹ️ Progress already logged in {project}/Progress.md"]
             content = self._insert_under_section(content, "## Progress Log", entry)
         else:
             content = f"# {project} Progress\n\n## Progress Log\n{entry}"
@@ -513,6 +542,8 @@ class KnowledgeApplier:
         entry = f"- **{timestamp}**: {ext['description']}\n"
         if progress_file.exists():
             content = self.vault.read_file(progress_file)
+            if f"- **{timestamp}**: {ext['description']}" in content:
+                return [f"ℹ️ Progress already logged in {project}/Progress.md"]
             content = self._insert_under_section(content, "## Progress Log", entry)
         else:
             content = f"# {project} Progress\n\n## Progress Log\n{entry}"
@@ -617,6 +648,8 @@ class KnowledgeApplier:
             entry = f"- [ ] **{timestamp}**: {ext['description']}\n"
             if inbox_file.exists():
                 content = self.vault.read_file(inbox_file)
+                if ext['description'].lower() in content.lower():
+                    return [f"ℹ️ Task already exists in Inbox: {ext['description'][:50]}"]
                 content = self._insert_under_section(content, "## Active Tasks", entry)
             else:
                 content = f"# Inbox Tasks\n\n## Active Tasks\n{entry}"
@@ -627,6 +660,8 @@ class KnowledgeApplier:
         if not tasks_file.exists():
             return [f"⚠️ No Tasks.md found in {project}"]
         content = self.vault.read_file(tasks_file)
+        if ext['description'].lower() in content.lower():
+            return [f"ℹ️ Task already exists in {project}/Tasks.md: {ext['description'][:50]}"]
         content = self._insert_under_section(content, "## Active Tasks", f"- [ ] {ext['description']}\n")
         self.vault.write_file(tasks_file, content, message=f"New task: {ext['description'][:50]}")
         return [f"📝 Added task to {project}/Tasks.md"]
@@ -688,9 +723,9 @@ class BackgroundProcessor:
                 pass
         logger.info("Background processor stopped")
 
-    async def process(self, text: str, source: str = "Text", capture_id: str = "") -> ProcessingResult:
+    async def process(self, text: str, source: str = "Text", capture_id: str = "", dry_run: bool = False) -> ProcessingResult:
         """Process an entry immediately (TUI foreground path)."""
-        return await self._process_entry(text, source, capture_id=capture_id)
+        return await self._process_entry(text, source, capture_id=capture_id, dry_run=dry_run)
 
     async def queue(self, text: str, source: str = "Text", capture_id: str = ""):
         """Queue an entry for background processing."""
@@ -705,7 +740,7 @@ class BackgroundProcessor:
                 else:
                     text, source = item
                     capture_id = ""
-                result = await self._process_entry(text, source, capture_id=capture_id)
+                result = await self._process_entry(text, source, capture_id=capture_id, dry_run=False)
                 self._queue.task_done()
                 if self._on_processed:
                     try:
@@ -719,23 +754,23 @@ class BackgroundProcessor:
             except Exception as e:
                 logger.error("Background processor error: %s", e)
 
-    async def _process_entry(self, text: str, source: str, capture_id: str = "") -> ProcessingResult:
+    async def _process_entry(self, text: str, source: str, capture_id: str = "", dry_run: bool = False) -> ProcessingResult:
         """Process a single entry — semantic path with regex fallback."""
         result = ProcessingResult()
 
         if os.environ.get("OPENROUTER_API_KEY"):
             try:
-                return await self._process_semantic(text, source, capture_id, result)
+                return await self._process_semantic(text, source, capture_id, result, dry_run=dry_run)
             except Exception as exc:
                 logger.warning("Semantic pipeline failed, falling back to regex: %s", exc)
                 result.errors.append(f"Semantic pipeline error (using regex fallback): {exc}")
         else:
             logger.debug("OPENROUTER_API_KEY not set — using regex extractor")
 
-        return self._process_regex(text, source, result)
+        return self._process_regex(text, source, result, dry_run=dry_run)
 
     async def _process_semantic(
-        self, text: str, source: str, capture_id: str, result: ProcessingResult
+        self, text: str, source: str, capture_id: str, result: ProcessingResult, dry_run: bool = False
     ) -> ProcessingResult:
         from personal_os.core.extraction import SemanticExtractor, ExtractionContext
         from personal_os.core.llm import get_provider
@@ -765,6 +800,14 @@ class BackgroundProcessor:
 
         result.items = capture_result.items
         result.errors.extend(capture_result.errors)
+
+        if dry_run:
+            for item in capture_result.vault_writes:
+                desc = getattr(item.action, 'title', getattr(item.action, 'description', 'action'))
+                result.changes_made.append(f"[dry-run] Would apply {type(item.action).__name__}: {desc}")
+            if capture_id and capture_result.items:
+                result.changes_made.append(f"[dry-run] Would append semantic block for capture {capture_id[:8]}")
+            return result
 
         # Batch processing-stage vault writes (semantic actions + semantic block)
         # The journal entry (raw capture) was already committed by persist_capture()
@@ -799,17 +842,21 @@ class BackgroundProcessor:
 
         return result
 
-    def _process_regex(self, text: str, source: str, result: ProcessingResult) -> ProcessingResult:
+    def _process_regex(self, text: str, source: str, result: ProcessingResult, dry_run: bool = False) -> ProcessingResult:
         extractions = self.extractor.extract(text)
         result.extractions = extractions
+        if dry_run:
+            for ext in extractions:
+                result.changes_made.append(f"[dry-run] Would extract {ext.get('type')}: {ext.get('description', '')[:50]}")
+            return result
         for ext in extractions:
             changes = self.applier.apply(ext)
             result.changes_made.extend(changes)
         return result
 
 
-async def process_entry(text: str, source: str = "Text") -> ProcessingResult:
+async def process_entry(text: str, source: str = "Text", capture_id: str = "", dry_run: bool = False) -> ProcessingResult:
     """Convenience function to process an entry (CLI one-shot path)."""
     vault = get_vault()
     processor = BackgroundProcessor(vault)
-    return await processor.process(text, source)
+    return await processor.process(text, source, capture_id=capture_id, dry_run=dry_run)

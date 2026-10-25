@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 from typing import Any, Protocol
 
 from sqlalchemy.ext.asyncio import async_sessionmaker
@@ -158,7 +159,8 @@ class CaptureWorker:
     async def _retry(self, delivery: QueueDelivery, delay_seconds: float) -> None:
         """Keep the current delivery unacknowledged and defer its visibility."""
         try:
-            await self.queue.retry(delivery, delay_seconds=max(0, int(delay_seconds)))
+            effective_delay = max(1, math.ceil(delay_seconds)) if delay_seconds > 0 else 0
+            await self.queue.retry(delivery, delay_seconds=effective_delay)
         except Exception:  # noqa: BLE001 — message remains unacked for lease expiry
             log.exception("Could not defer queue delivery capture_id=%s", delivery.capture_id)
 

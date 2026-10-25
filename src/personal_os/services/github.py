@@ -735,7 +735,13 @@ class GitHubService:
         if not auth.encrypted_refresh_token:
             raise GitHubAuthError("No refresh token available to refresh expired GitHub token.")
 
-        refresh_token = decrypt_secret(auth.encrypted_refresh_token, self._encryption_key)
+        try:
+            refresh_token = decrypt_secret(auth.encrypted_refresh_token, self._encryption_key)
+        except Exception as exc:
+            log.warning("Failed to decrypt GitHub refresh token for user %s: %s", auth.user_id, exc)
+            raise GitHubAuthError(
+                "Stored GitHub credentials could not be decrypted. Please re-authenticate."
+            ) from exc
         oauth_base = (
             self.settings.github_oauth_base_url or "https://github.com/login/oauth"
         ).rstrip("/")
@@ -863,7 +869,13 @@ class GitHubService:
                     f"GitHub token has expired and could not be refreshed: {exc}"
                 ) from exc
         else:
-            decrypted_token = decrypt_secret(auth.encrypted_token, self._encryption_key)
+            try:
+                decrypted_token = decrypt_secret(auth.encrypted_token, self._encryption_key)
+            except Exception as exc:
+                log.warning("Failed to decrypt GitHub access token for user %s: %s", user_id, exc)
+                raise GitHubAuthError(
+                    "Stored GitHub credentials could not be decrypted. Please re-authenticate."
+                ) from exc
 
         return GitHubClient(token=decrypted_token, base_url=self.settings.github_api_base_url)
 

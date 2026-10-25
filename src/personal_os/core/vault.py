@@ -441,15 +441,18 @@ class VaultManager:
             meta['open_tasks'] = content.count('- [ ]')
         
         # Read Architecture.md/Decisions.md for health indicators
+        health_rank = {'green': 0, 'yellow': 1, 'red': 2}
         for f in ['Architecture.md', 'Decisions.md', 'README.md']:
             fp = project_dir / f
             if fp.exists():
                 content = self.read_file(fp)
                 if 'BLOCKED' in content.upper() or 'blocked' in content.lower():
-                    meta['health'] = 'red'
-                    meta['status'] = 'blocked'
+                    if health_rank['red'] > health_rank.get(meta.get('health', 'green'), 0):
+                        meta['health'] = 'red'
+                        meta['status'] = 'blocked'
                 elif 'TODO' in content.upper() or 'wip' in content.lower():
-                    meta['health'] = 'yellow'
+                    if health_rank['yellow'] > health_rank.get(meta.get('health', 'green'), 0):
+                        meta['health'] = 'yellow'
         
         return meta
     
@@ -479,30 +482,36 @@ class VaultManager:
         project_dir = self.config.projects_dir / name
         project_dir.mkdir(parents=True, exist_ok=False)
         
-        template = self._project_readme_template()
-        content = template.replace("{{project_name}}", name) \
-                         .replace("{{description}}", description) \
-                         .replace("{{phase}}", phase) \
-                         .replace("{{health}}", "green") \
-                         .replace("{{date}}", datetime.now().strftime('%Y-%m-%d'))
-        
-        self.write_file(project_dir / "README.md", content)
-        
-        # Create standard files
-        for fname, header in [
-            ("Progress.md", f"# {name} Progress\n\n## Progress Log\n"),
-            ("Tasks.md", f"# {name} Tasks\n\n## Active Tasks\n\n## Completed Tasks\n\n## Backlog\n"),
-            ("Notes.md", f"# {name} Notes\n\n"),
-            ("Architecture.md", f"# {name} Architecture\n\n## Decision Log\n"),
-            ("Decisions.md", f"# {name} Decisions\n\n## Decision Log\n"),
-            ("Research.md", f"# {name} Research\n\n"),
-            ("Timeline.md", f"# {name} Timeline\n\n"),
-        ]:
-            self.write_file(project_dir / fname, header)
-        
-        if self._repo:
-            self._repo.index.add([str(p.relative_to(self.config.root)) for p in project_dir.rglob("*")])
-            self._repo.index.commit(f"Create project: {name}")
+        try:
+            template = self._project_readme_template()
+            content = template.replace("{{project_name}}", name) \
+                             .replace("{{description}}", description) \
+                             .replace("{{phase}}", phase) \
+                             .replace("{{health}}", "green") \
+                             .replace("{{date}}", datetime.now().strftime('%Y-%m-%d'))
+            
+            self.write_file(project_dir / "README.md", content, commit=False)
+            
+            # Create standard files
+            for fname, header in [
+                ("Progress.md", f"# {name} Progress\n\n## Progress Log\n"),
+                ("Tasks.md", f"# {name} Tasks\n\n## Active Tasks\n\n## Completed Tasks\n\n## Backlog\n"),
+                ("Notes.md", f"# {name} Notes\n\n"),
+                ("Architecture.md", f"# {name} Architecture\n\n## Decision Log\n"),
+                ("Decisions.md", f"# {name} Decisions\n\n## Decision Log\n"),
+                ("Research.md", f"# {name} Research\n\n"),
+                ("Timeline.md", f"# {name} Timeline\n\n"),
+            ]:
+                self.write_file(project_dir / fname, header, commit=False)
+            
+            if self._repo:
+                self._repo.index.add([str(p.relative_to(self.config.root)) for p in project_dir.rglob("*")])
+                self._repo.index.commit(f"Create project: {name}")
+        except Exception:
+            import shutil
+            if project_dir.exists():
+                shutil.rmtree(project_dir)
+            raise
         
         return project_dir
     

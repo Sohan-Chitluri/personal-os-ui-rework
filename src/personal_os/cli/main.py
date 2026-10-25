@@ -355,7 +355,7 @@ def review_alias():
 
 # ========== Maintenance ==========
 
-@app.command()
+@app.command("process")
 def process(
     today: bool = typer.Option(True, "--today/--all", help="Process today or all journals"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be done"),
@@ -365,17 +365,32 @@ def process(
     
     if today:
         from datetime import datetime
+        import re
         journal_path = vault.get_journal_path(datetime.now())
         if journal_path.exists():
             content = vault.read_file(journal_path)
-            console.print(f"🔄 Processing today's journal...")
-            result = asyncio.run(process_entry(content, "Reprocess"))
+            # Strip previous machine-generated semantic blocks before reprocessing
+            cleaned_content = re.sub(r"<!--\s*semantic:[\s\S]*?-->", "", content).strip()
+            if dry_run:
+                console.print("🔄 [yellow]Dry run:[/yellow] processing today's journal...")
+            else:
+                console.print("🔄 Processing today's journal...")
+            result = asyncio.run(process_entry(cleaned_content, "Reprocess", dry_run=dry_run))
             for change in result.changes_made:
                 console.print(f"   {change}")
         else:
             console.print("📭 No journal for today")
     else:
         console.print("🔄 Full reprocess not yet implemented")
+
+
+@app.command("reprocess")
+def reprocess_alias(
+    today: bool = typer.Option(True, "--today/--all", help="Process today or all journals"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show what would be done"),
+):
+    """Alias for 'process'."""
+    process(today=today, dry_run=dry_run)
 
 
 @app.command()

@@ -8,13 +8,10 @@ import asyncio
 from typing import Optional
 
 from textual.app import ComposeResult
-from textual.containers import Horizontal, Vertical
-from textual.widgets import Static
 
 from personal_os.tui.views.base import WorkspaceView
 from personal_os.tui.components.search_results import SearchResults
 from personal_os.tui.providers.search_provider import (
-    SearchProvider,
     SearchResultsData,
     create_search_provider,
 )

@@ -124,10 +124,10 @@ async def capture(
     try:
         if processor is not None:
             # Non-blocking: hand off to the background worker.
-            await processor.queue(receipt.raw, source)
+            await processor.queue(receipt.raw, source, capture_id=receipt.capture_id)
         else:
             # One-shot path (CLI): process inline and discard the result here.
-            await process_entry(receipt.raw, source)
+            await process_entry(receipt.raw, source, capture_id=receipt.capture_id)
     except Exception as e:  # noqa: BLE001 - processing failure must not lose capture
         logger.error("Processing enqueue/run failed (raw is safe): %s", e)
 
@@ -151,7 +151,7 @@ async def capture_and_process(
         return receipt, None
 
     try:
-        result = await process_entry(receipt.raw, source)
+        result = await process_entry(receipt.raw, source, capture_id=receipt.capture_id)
         return receipt, result
     except Exception as e:  # noqa: BLE001
         logger.error("Processing failed (raw is safe at %s): %s", receipt.journal_path, e)

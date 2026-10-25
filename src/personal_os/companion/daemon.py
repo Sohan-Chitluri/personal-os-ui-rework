@@ -138,6 +138,8 @@ class CompanionDaemon:
                 finally:
                     heartbeat_task.cancel()
                     await asyncio.gather(heartbeat_task, return_exceptions=True)
+                    if heartbeat_task in self._tasks:
+                        self._tasks.remove(heartbeat_task)
 
         except (ConnectionRefusedError, OSError, WebSocketException) as exc:
             log.warning("Connection to %s failed: %s", ws_url, exc)

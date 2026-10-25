@@ -20,13 +20,12 @@ from typing import Optional
 
 from textual.app import ComposeResult
 from textual.containers import Horizontal, Vertical, ScrollableContainer
-from textual.widgets import Static, Label, TabbedContent, TabPane, Button
+from textual.widgets import Static, TabbedContent, TabPane
 from textual.message import Message
 
 from personal_os.tui.views.base import WorkspaceView
 from personal_os.tui.components import ProjectTree
 from personal_os.tui.providers.projects_provider import (
-    ProjectsProvider,
     ProjectsData,
     ProjectDetail,
     create_projects_provider,

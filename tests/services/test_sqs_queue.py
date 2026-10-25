@@ -221,3 +221,30 @@ def test_sqs_backend_requires_queue_url_and_builds_with_injected_client():
         settings.model_copy(update={"sqs_queue_url": QUEUE_URL}), sqs_client=_client()
     )
     assert isinstance(queue, SqsCaptureQueue)
+
+
+@pytest.mark.asyncio
+async def test_capture_worker_retry_preserves_positive_delay_for_fractional_backoff():
+    class RecordingQueue:
+        def __init__(self):
+            self.retries: list[tuple[QueueDelivery, int]] = []
+
+        async def retry(self, delivery: QueueDelivery, delay_seconds: int = 0) -> None:
+            self.retries.append((delivery, delay_seconds))
+
+    queue = RecordingQueue()
+    worker = CaptureWorker(session_factory=lambda: None, queue=queue, extractor=None, retry_backoff=0.1)
+    delivery = QueueDelivery("01TESTCAP", "01TESTOWN", "receipt", 1, "id")
+
+    # 0.1s backoff must round up to at least 1s on SQS, not down to 0s hot-loop
+    await worker._retry(delivery, 0.1)
+    assert queue.retries == [(delivery, 1)]
+
+    # 0.0s delay remains 0s
+    await worker._retry(delivery, 0.0)
+    assert queue.retries[-1] == (delivery, 0)
+
+    # 1.5s delay rounds up to 2s
+    await worker._retry(delivery, 1.5)
+    assert queue.retries[-1] == (delivery, 2)
+

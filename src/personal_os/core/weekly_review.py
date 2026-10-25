@@ -119,10 +119,48 @@ class WeeklyReviewGenerator:
                     })
         return progress
 
-    def collect_completed_tasks(self, monday: datetime, sunday: datetime) -> List[Dict[str, str]]:
+    @staticmethod
+    def _extract_task_date(line: str) -> Optional[datetime.date]:
+        """Extract completion or task date from a markdown task line."""
+        # 1. Check for **YYYY-MM-DD**
+        m = re.search(r'\*\*(\d{4}-\d{2}-\d{2})\*\*', line)
+        if m:
+            try:
+                return datetime.strptime(m.group(1), "%Y-%m-%d").date()
+            except ValueError:
+                pass
+        # 2. Check for [completed: YYYY-MM-DD] or (done: YYYY-MM-DD) or (closed: YYYY-MM-DD)
+        m = re.search(r'\[?(?:completed|done|closed):\s*(\d{4}-\d{2}-\d{2})\]?', line, re.IGNORECASE)
+        if m:
+            try:
+                return datetime.strptime(m.group(1), "%Y-%m-%d").date()
+            except ValueError:
+                pass
+        # 3. Check for 📅 YYYY-MM-DD
+        m = re.search(r'📅\s*(\d{4}-\d{2}-\d{2})', line)
+        if m:
+            try:
+                return datetime.strptime(m.group(1), "%Y-%m-%d").date()
+            except ValueError:
+                pass
+        return None
+
+    def collect_completed_tasks(
+        self, monday: datetime, sunday: datetime, include_undated: bool = True
+    ) -> List[Dict[str, str]]:
+        """Collect completed tasks, filtering by the [monday, sunday] date bounds when dates exist.
+
+        Tasks with explicit dates (e.g. **YYYY-MM-DD**, [completed: YYYY-MM-DD], 📅 YYYY-MM-DD)
+        are filtered strictly against the requested week.
+        Historical tasks without completion timestamps are preserved if include_undated=True.
+        """
         completed: List[Dict[str, str]] = []
         if not self.projects_dir.exists():
             return completed
+
+        monday_date = monday.date() if isinstance(monday, datetime) else monday
+        sunday_date = sunday.date() if isinstance(sunday, datetime) else sunday
+
         for project_dir in self.projects_dir.iterdir():
             if not project_dir.is_dir():
                 continue
@@ -130,8 +168,14 @@ class WeeklyReviewGenerator:
             if not tasks_file.exists():
                 continue
             for line in tasks_file.read_text(encoding="utf-8").split("\n"):
-                if line.strip().startswith(("- [x]", "- [X]")):
-                    completed.append({"project": project_dir.name, "task": line.strip()})
+                stripped = line.strip()
+                if stripped.startswith(("- [x]", "- [X]")):
+                    task_date = self._extract_task_date(stripped)
+                    if task_date is not None:
+                        if monday_date <= task_date <= sunday_date:
+                            completed.append({"project": project_dir.name, "task": stripped})
+                    elif include_undated:
+                        completed.append({"project": project_dir.name, "task": stripped})
         return completed
 
     def collect_new_tasks(self, monday: datetime, sunday: datetime) -> List[Dict[str, str]]:
