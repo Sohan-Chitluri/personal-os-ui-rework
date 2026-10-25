@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 from unittest.mock import AsyncMock, patch
 
+import httpx
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -581,4 +582,58 @@ async def test_oauth_precedence_and_fallback_to_public(db_session: AsyncSession,
     assert client_fallback.is_public_only is True
     assert client_fallback.token is None
     assert client_fallback.public_username == "Sohan-Chitluri"
+
+
+@pytest.mark.asyncio
+async def test_github_client_connection_reuse_and_lifecycle():
+    """GitHubClient reuses underlying HTTP client across requests and closes cleanly."""
+    gh = GitHubClient(token="test_token", base_url="https://api.github.com")
+
+    # Initial state
+    assert gh._http_client is None
+
+    # First access creates the client
+    c1 = await gh._get_client()
+    assert isinstance(c1, httpx.AsyncClient)
+    assert not c1.is_closed
+
+    # Second access reuses the exact same client instance
+    c2 = await gh._get_client()
+    assert c2 is c1
+
+    # Shutdown
+    await gh.aclose()
+    assert c1.is_closed
+
+    # Accessing again after close creates a fresh client
+    c3 = await gh._get_client()
+    assert c3 is not c1
+    assert not c3.is_closed
+    await gh.aclose()
+
+
+@pytest.mark.asyncio
+async def test_github_client_context_manager():
+    """GitHubClient supports async context manager and auto-closes."""
+    async with GitHubClient(token="test_token") as gh:
+        client = await gh._get_client()
+        assert not client.is_closed
+    assert client.is_closed
+
+
+@pytest.mark.asyncio
+async def test_github_client_external_http_client_ownership():
+    """Injected external http_client is not closed when GitHubClient.aclose() is called."""
+    external_client = httpx.AsyncClient()
+    try:
+        gh = GitHubClient(token="test_token", http_client=external_client)
+        assert gh._owns_http_client is False
+        client = await gh._get_client()
+        assert client is external_client
+
+        await gh.aclose()
+        # External client remains open
+        assert not external_client.is_closed
+    finally:
+        await external_client.aclose()
 

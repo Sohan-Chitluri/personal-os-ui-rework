@@ -210,6 +210,7 @@ class GitHubClient:
         token: str | None = None,
         public_username: str | None = None,
         base_url: str = "https://api.github.com",
+        http_client: httpx.AsyncClient | None = None,
     ) -> None:
         self.token = token.strip() if token and token.strip() else None
         self.public_username = (
@@ -224,6 +225,25 @@ class GitHubClient:
         if self.token:
             self.headers["Authorization"] = f"Bearer {self.token}"
 
+        self._http_client = http_client
+        self._owns_http_client = http_client is None
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        if self._http_client is None or self._http_client.is_closed:
+            self._http_client = httpx.AsyncClient(timeout=15.0)
+            self._owns_http_client = True
+        return self._http_client
+
+    async def aclose(self) -> None:
+        if self._owns_http_client and self._http_client is not None and not self._http_client.is_closed:
+            await self._http_client.aclose()
+
+    async def __aenter__(self) -> GitHubClient:
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        await self.aclose()
+
     @property
     def is_public_only(self) -> bool:
         return self.token is None
@@ -235,17 +255,17 @@ class GitHubClient:
         params: dict[str, Any] | None = None,
     ) -> Any:
         url = f"{self.base_url}{endpoint}"
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.request(method, url, headers=self.headers, params=params)
-            if resp.status_code == 401:
-                raise GitHubAuthError("GitHub credentials are invalid or expired.")
-            if resp.status_code == 404:
-                raise GitHubNotFoundError(f"GitHub resource not found at {endpoint}")
-            if resp.status_code == 403 and "rate limit" in resp.text.lower():
-                raise GitHubRateLimitError("GitHub API rate limit exceeded.")
-            if resp.status_code >= 400:
-                raise GitHubError(f"GitHub API error ({resp.status_code}): {resp.text[:200]}")
-            return resp.json()
+        client = await self._get_client()
+        resp = await client.request(method, url, headers=self.headers, params=params)
+        if resp.status_code == 401:
+            raise GitHubAuthError("GitHub credentials are invalid or expired.")
+        if resp.status_code == 404:
+            raise GitHubNotFoundError(f"GitHub resource not found at {endpoint}")
+        if resp.status_code == 403 and "rate limit" in resp.text.lower():
+            raise GitHubRateLimitError("GitHub API rate limit exceeded.")
+        if resp.status_code >= 400:
+            raise GitHubError(f"GitHub API error ({resp.status_code}): {resp.text[:200]}")
+        return resp.json()
 
     async def get_authenticated_user(self) -> dict[str, Any]:
         """Fetch user profile (authenticated or public profile)."""
