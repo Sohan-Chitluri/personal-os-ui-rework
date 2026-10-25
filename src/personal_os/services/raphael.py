@@ -831,14 +831,9 @@ class RaphaelService:
             return sanitized_reply
 
         updated_reply = sanitized_reply
-        executed = False
+        seen_actions: set[str] = set()
 
-        for match in matches:
-            if executed:
-                # Deduplicate multiple actions in a single response
-                updated_reply = updated_reply.replace(match.group(0), "").strip()
-                continue
-
+        for action_idx, match in enumerate(matches):
             raw_match = match.group(0)
             json_str = next((g for g in match.groups() if g is not None), None)
             if not json_str:
@@ -849,49 +844,68 @@ class RaphaelService:
             except json.JSONDecodeError as exc:
                 log.warning("Malformed JSON in action block: %s", exc)
                 updated_reply = updated_reply.replace(
-                    raw_match, "Action specification was malformed JSON."
+                    raw_match, "Action specification was malformed JSON.", 1
                 )
                 continue
 
-            if isinstance(action_data, dict):
-                action_type = action_data.get("action")
+            if not isinstance(action_data, dict):
+                updated_reply = updated_reply.replace(
+                    raw_match, "Action specification was invalid.", 1
+                )
+                continue
+
+            canonical_key = json.dumps(action_data, sort_keys=True)
+            if canonical_key in seen_actions:
+                log.info("Deduplicating identical action block in single turn: %s", action_data)
+                updated_reply = updated_reply.replace(
+                    raw_match, "Duplicate action ignored (already executed in this message).", 1
+                )
+                continue
+            seen_actions.add(canonical_key)
+
+            action_msg_id = (
+                client_message_id
+                if action_idx == 0
+                else f"{client_message_id}:action:{action_idx}"
+                if client_message_id
+                else None
+            )
+
+            action_type = action_data.get("action")
+            try:
                 if action_type == "create_task":
                     confirmation = await self._execute_create_task(
                         owner_id=owner_id,
                         conversation_id=conversation_id,
                         action_data=action_data,
-                        client_message_id=client_message_id,
+                        client_message_id=action_msg_id,
                     )
-                    updated_reply = updated_reply.replace(raw_match, confirmation).strip()
-                    executed = True
+                    updated_reply = updated_reply.replace(raw_match, confirmation, 1).strip()
                 elif action_type == "create_project":
                     confirmation = await self._execute_create_project(
                         owner_id=owner_id,
                         conversation_id=conversation_id,
                         action_data=action_data,
-                        client_message_id=client_message_id,
+                        client_message_id=action_msg_id,
                     )
-                    updated_reply = updated_reply.replace(raw_match, confirmation).strip()
-                    executed = True
+                    updated_reply = updated_reply.replace(raw_match, confirmation, 1).strip()
                 elif action_type == "connect_repository":
                     confirmation = await self._execute_connect_repository(
                         owner_id=owner_id,
                         conversation_id=conversation_id,
                         action_data=action_data,
-                        client_message_id=client_message_id,
+                        client_message_id=action_msg_id,
                     )
-                    updated_reply = updated_reply.replace(raw_match, confirmation).strip()
-                    executed = True
+                    updated_reply = updated_reply.replace(raw_match, confirmation, 1).strip()
                 else:
                     log.warning("Unsupported action type: %s", action_type)
                     updated_reply = updated_reply.replace(
-                        raw_match, f"Action '{action_type}' is not supported."
+                        raw_match, f"Action '{action_type}' is not supported.", 1
                     ).strip()
-                    executed = True
-            else:
+            except Exception as exc:
+                log.error("Error executing action %s: %s", action_type, exc, exc_info=True)
                 updated_reply = updated_reply.replace(
-                    raw_match, "Action specification was invalid."
+                    raw_match, f"Action '{action_type}' failed: {exc}", 1
                 ).strip()
-                executed = True
 
         return strip_hermes_reasoning(updated_reply)
