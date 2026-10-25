@@ -7,7 +7,7 @@ import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import or_, select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from personal_os.config import Settings
@@ -266,6 +266,7 @@ class SessionFinalizerService:
             conv.summary_status = "summarized"
             conv.summarized_at = now
             conv.summary_capture_id = capture.id
+            conv.next_retry_at = None
             self.session.add(conv)
             await self.session.commit()
             return capture
@@ -274,7 +275,20 @@ class SessionFinalizerService:
             log.error(
                 "Failed to summarize conversation %s: %s", conversation_id, exc, exc_info=True
             )
-            conv.summary_status = "failed_retryable"
+            conv.summary_attempts = (conv.summary_attempts or 0) + 1
+            if conv.summary_attempts >= 3:
+                conv.summary_status = "failed_terminal"
+                conv.next_retry_at = None
+                log.warning(
+                    "Conversation %s summarization failed permanently after %d attempts",
+                    conversation_id,
+                    conv.summary_attempts,
+                )
+            else:
+                conv.summary_status = "failed_retryable"
+                backoff_minutes = 5 * (2 ** (conv.summary_attempts - 1))
+                conv.next_retry_at = datetime.now(UTC) + timedelta(minutes=backoff_minutes)
+
             self.session.add(conv)
             await self.session.commit()
             raise
@@ -285,15 +299,30 @@ class SessionFinalizerService:
         batch_size: int = 25,
     ) -> list[str]:
         """Find conversations with > inactivity_minutes elapsed and summarize them."""
-        cutoff = datetime.now(UTC) - timedelta(minutes=inactivity_minutes)
+        now = datetime.now(UTC)
+        cutoff = now - timedelta(minutes=inactivity_minutes)
+
+        eligible_status = or_(
+            Conversation.summary_status.in_(["active", "pending_summary"]),
+            and_(
+                Conversation.summary_status == "failed_retryable",
+                or_(
+                    Conversation.next_retry_at.is_(None),
+                    Conversation.next_retry_at <= now,
+                ),
+            ),
+        )
 
         stmt = (
             select(Conversation)
             .where(
                 Conversation.last_activity_at <= cutoff,
-                Conversation.summary_status.in_(["active", "pending_summary", "failed_retryable"]),
+                eligible_status,
             )
-            .order_by(Conversation.last_activity_at.asc())
+            .order_by(
+                Conversation.next_retry_at.nulls_first(),
+                Conversation.last_activity_at.asc(),
+            )
             .limit(batch_size)
         )
         result = await self.session.execute(stmt)

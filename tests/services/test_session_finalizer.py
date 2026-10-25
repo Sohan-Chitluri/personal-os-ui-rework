@@ -278,3 +278,90 @@ async def test_delete_session_memory_isolation_and_type_check(
     await db_session.refresh(cap)
     assert cap.deleted_at is None
 
+
+@pytest.mark.asyncio
+async def test_failing_conversation_does_not_block_newer_conversations(
+    db_session: AsyncSession, test_user: User
+):
+    """A failing conversation receives backoff and does not prevent newer eligible conversations from being swept."""
+    settings = Settings(environment="test")
+    finalizer = SessionFinalizerService(session=db_session, settings=settings)
+
+    now = datetime.now(UTC)
+    # Older conversation (fails)
+    conv_bad = Conversation(
+        owner_id=test_user.id,
+        title="Failing Conversation",
+        status="active",
+        summary_status="failed_retryable",
+        summary_attempts=1,
+        next_retry_at=now + timedelta(minutes=10),
+        last_activity_at=now - timedelta(minutes=120),
+    )
+    # Newer conversation (succeeds)
+    conv_good = Conversation(
+        owner_id=test_user.id,
+        title="Good Conversation",
+        status="active",
+        summary_status="active",
+        last_activity_at=now - timedelta(minutes=90),
+    )
+    db_session.add_all([conv_bad, conv_good])
+    await db_session.commit()
+
+    db_session.add(
+        ConversationMessage(conversation_id=conv_bad.id, role="user", content="Bad session")
+    )
+    db_session.add(
+        ConversationMessage(conversation_id=conv_good.id, role="user", content="Good session")
+    )
+    await db_session.commit()
+
+    # Sweep with batch size 1: conv_bad is in future backoff, so conv_good MUST be picked
+    summarized = await finalizer.sweep_inactive_conversations(inactivity_minutes=60, batch_size=1)
+    assert summarized == [conv_good.id]
+
+    await db_session.refresh(conv_good)
+    assert conv_good.summary_status == "summarized"
+
+
+@pytest.mark.asyncio
+async def test_bounded_retries_transition_to_failed_terminal(
+    db_session: AsyncSession, test_user: User
+):
+    """After 3 failed summarization attempts, conversation status transitions to failed_terminal."""
+    settings = Settings(environment="test")
+    finalizer = SessionFinalizerService(session=db_session, settings=settings)
+
+    conv_failing = Conversation(
+        owner_id=test_user.id,
+        title="Repeated Failure",
+        status="active",
+        summary_status="failed_retryable",
+        summary_attempts=2,
+        last_activity_at=datetime.now(UTC) - timedelta(minutes=90),
+    )
+    db_session.add(conv_failing)
+    await db_session.commit()
+
+    db_session.add(
+        ConversationMessage(
+            conversation_id=conv_failing.id, role="user", content="Crash on this turn"
+        )
+    )
+    await db_session.commit()
+
+    from unittest.mock import patch
+
+    with patch(
+        "personal_os.services.session_finalizer.generate_session_summary_heuristic",
+        side_effect=ValueError("Crash"),
+    ):
+        with pytest.raises(ValueError):
+            await finalizer.finalize_conversation(conv_failing.id, force=True)
+
+    await db_session.refresh(conv_failing)
+    assert conv_failing.summary_attempts == 3
+    assert conv_failing.summary_status == "failed_terminal"
+    assert conv_failing.next_retry_at is None
+

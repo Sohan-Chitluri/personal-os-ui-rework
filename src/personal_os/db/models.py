@@ -333,6 +333,10 @@ class Conversation(ULIDPrimaryKeyMixin, TimestampMixin, Base):
     summary_status: Mapped[str] = mapped_column(
         String(32), default="active", server_default="active", nullable=False
     )
+    summary_attempts: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    next_retry_at: Mapped[datetime | None] = mapped_column(TZDateTime, nullable=True)
     summarized_at: Mapped[datetime | None] = mapped_column(TZDateTime, nullable=True)
     summary_capture_id: Mapped[str | None] = mapped_column(
         ULIDType, ForeignKey("captures.id", ondelete="SET NULL"), nullable=True
@@ -342,6 +346,7 @@ class Conversation(ULIDPrimaryKeyMixin, TimestampMixin, Base):
         Index("ix_conversations_owner", "owner_id"),
         Index("ix_conversations_owner_created", "owner_id", "created_at"),
         Index("ix_conversations_summary_status", "summary_status", "last_activity_at"),
+        Index("ix_conversations_summary_retry", "summary_status", "next_retry_at"),
     )
 
 
