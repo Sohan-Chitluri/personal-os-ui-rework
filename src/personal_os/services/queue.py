@@ -242,13 +242,45 @@ class SqsCaptureQueue:
         # SQS may return several messages in a receive batch. While the worker
         # handles the first, keep all buffered leases alive too.
         leases = [delivery, *self._buffer]
+        stale_buffered: list[QueueDelivery] = []
         for lease in leases:
-            await asyncio.to_thread(
-                self.client.change_message_visibility,
-                QueueUrl=self.queue_url,
-                ReceiptHandle=lease.ack_token,
-                VisibilityTimeout=self.visibility_timeout,
-            )
+            try:
+                await asyncio.to_thread(
+                    self.client.change_message_visibility,
+                    QueueUrl=self.queue_url,
+                    ReceiptHandle=lease.ack_token,
+                    VisibilityTimeout=self.visibility_timeout,
+                )
+            except Exception as exc:
+                error_code = ""
+                response = getattr(exc, "response", None)
+                if isinstance(response, dict):
+                    error_code = str(response.get("Error", {}).get("Code", ""))
+                exc_str = str(exc)
+
+                is_stale_handle = (
+                    error_code
+                    in ("ReceiptHandleIsInvalid", "MessageNotInflight", "InvalidParameterValue")
+                    or "ReceiptHandleIsInvalid" in exc_str
+                    or "MessageNotInflight" in exc_str
+                )
+
+                if is_stale_handle:
+                    log.warning(
+                        "SQS message lease expired or handle is stale for capture_id=%s (error=%s)",
+                        lease.capture_id,
+                        error_code or exc_str,
+                    )
+                    if lease in self._buffer:
+                        stale_buffered.append(lease)
+                else:
+                    raise
+
+        for stale in stale_buffered:
+            try:
+                self._buffer.remove(stale)
+            except ValueError:
+                pass
 
     async def close(self) -> None:
         self._closed = True

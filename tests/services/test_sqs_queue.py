@@ -248,3 +248,39 @@ async def test_capture_worker_retry_preserves_positive_delay_for_fractional_back
     await worker._retry(delivery, 1.5)
     assert queue.retries[-1] == (delivery, 2)
 
+
+@pytest.mark.asyncio
+async def test_sqs_extend_visibility_isolates_stale_handles():
+    """An invalid/expired handle logs and drops without preventing valid leases from extending."""
+    extended: list[str] = []
+
+    class MockSQSClient:
+        def change_message_visibility(self, QueueUrl: str, ReceiptHandle: str, VisibilityTimeout: int):
+            if "stale" in ReceiptHandle:
+                class StaleError(Exception):
+                    response = {"Error": {"Code": "ReceiptHandleIsInvalid"}}
+                raise StaleError("ReceiptHandleIsInvalid: The input receipt handle is invalid.")
+            extended.append(ReceiptHandle)
+
+    queue = SqsCaptureQueue(
+        QUEUE_URL,
+        "us-east-1",
+        client=MockSQSClient(),
+        visibility_timeout=60,
+    )
+
+    d1 = QueueDelivery(capture_id="cap-1", owner_id="user-1", ack_token="handle-stale-1", receive_count=1, message_id="msg-1")
+    d2 = QueueDelivery(capture_id="cap-2", owner_id="user-1", ack_token="handle-valid-2", receive_count=1, message_id="msg-2")
+    d3 = QueueDelivery(capture_id="cap-3", owner_id="user-1", ack_token="handle-valid-3", receive_count=1, message_id="msg-3")
+
+    # Put d2 and d3 in queue buffer
+    queue._buffer.append(d2)
+    queue._buffer.append(d3)
+
+    # Extend visibility where d1 is stale, but buffered d2 and d3 are valid
+    await queue.extend_visibility(d1)
+
+    assert "handle-valid-2" in extended
+    assert "handle-valid-3" in extended
+    assert "handle-stale-1" not in extended
+
