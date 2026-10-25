@@ -25,6 +25,7 @@ import {
   ChevronUp,
   Loader2,
   Trash2,
+  Mic,
 } from "lucide-react";
 import { QueryClientContext } from "@tanstack/react-query";
 import { raphaelApi, type RaphaelApiClient } from "@/lib/raphael-api";
@@ -36,6 +37,7 @@ import type {
 } from "@/lib/raphael-types";
 import { cleanMessageContent, parseProjectResult, parseTaskResult } from "@/lib/raphael-utils";
 import { MarkdownContent } from "@/components/markdown-content";
+import { VoiceSession } from "@/components/voice-session";
 
 export const Route = createFileRoute("/raphael")({
   head: () => ({ meta: [{ title: "Raphael — Personal OS" }] }),
@@ -68,6 +70,7 @@ export function RaphaelChatPage({ api = raphaelApi }: { api?: RaphaelApiClient }
   const [deletingMemId, setDeletingMemId] = useState<string | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [expandedMemoryId, setExpandedMemoryId] = useState<string | null>(null);
+  const [isVoiceActive, setIsVoiceActive] = useState(false);
 
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
@@ -293,6 +296,21 @@ export function RaphaelChatPage({ api = raphaelApi }: { api?: RaphaelApiClient }
           <div className="flex items-center gap-2">
             <button
               type="button"
+              data-testid="raphael-voice-toggle"
+              onClick={() => setIsVoiceActive(!isVoiceActive)}
+              className={`flex items-center gap-1.5 border-2 border-grid px-2.5 py-1 text-xs font-black uppercase transition-colors ${
+                isVoiceActive
+                  ? "bg-block-blue text-white"
+                  : "bg-panel text-foreground hover:bg-muted"
+              }`}
+              title="Toggle real-time voice mode with Raphael"
+            >
+              <Mic className="size-3.5" />
+              <span>Voice</span>
+            </button>
+
+            <button
+              type="button"
               onClick={() => setShowMemories(!showMemories)}
               className={`flex items-center gap-1.5 border-2 border-grid px-2.5 py-1 text-xs font-black uppercase transition-colors ${
                 showMemories ? "bg-block-blue text-white" : "bg-panel text-foreground hover:bg-muted"
@@ -314,6 +332,24 @@ export function RaphaelChatPage({ api = raphaelApi }: { api?: RaphaelApiClient }
             </button>
           </div>
         </header>
+
+        {/* LiveKit Real-Time Voice Session */}
+        {isVoiceActive && (
+          <VoiceSession
+            conversationId={activeConversation?.id}
+            onEnd={() => setIsVoiceActive(false)}
+            onTurnPersisted={async () => {
+              if (activeConversation?.id) {
+                try {
+                  const detail = await api.getConversation(activeConversation.id);
+                  setActiveConversation(detail);
+                } catch {
+                  // ignore background polling failure
+                }
+              }
+            }}
+          />
+        )}
 
         {/* Hidden list for DOM accessibility and backwards test compatibility */}
         <div className="sr-only" aria-hidden="true">

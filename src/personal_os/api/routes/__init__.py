@@ -10,6 +10,7 @@ from personal_os.api.routes.projects import router as projects_router
 from personal_os.api.routes.raphael import router as raphael_router
 from personal_os.api.routes.sync import router as sync_router
 from personal_os.api.routes.tasks import router as tasks_router
+from personal_os.api.routes.voice import router as voice_router
 
 __all__ = [
     "health_router",
@@ -22,4 +23,5 @@ __all__ = [
     "sync_router",
     "raphael_router",
     "github_router",
+    "voice_router",
 ]

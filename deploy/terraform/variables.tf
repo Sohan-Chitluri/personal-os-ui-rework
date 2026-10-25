@@ -92,6 +92,27 @@ locals {
   api_origin_domain     = local.custom_domain_enabled ? "${var.api_subdomain}.${var.root_domain}" : aws_lb.main.dns_name
 }
 
+# --- LiveKit Voice ---------------------------------------------------------
+
+variable "livekit_url" {
+  description = "LiveKit server WebSocket URL (e.g. wss://project.livekit.cloud or ws://127.0.0.1:7880)."
+  type        = string
+  default     = ""
+}
+
+variable "livekit_api_key" {
+  description = "LiveKit API key."
+  type        = string
+  default     = ""
+}
+
+variable "livekit_api_secret" {
+  description = "LiveKit API secret."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
 # --- Compute ----------------------------------------------------------------
 
 variable "api_instance_type" {

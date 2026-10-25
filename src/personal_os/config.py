@@ -122,6 +122,13 @@ class Settings(BaseSettings):
     github_api_base_url: str = "https://api.github.com"
     github_oauth_base_url: str = "https://github.com/login/oauth"
 
+    # --- LiveKit Voice Agent ---
+    livekit_url: str = "ws://localhost:7880"
+    livekit_api_key: str | None = None
+    livekit_api_secret: str | None = None
+    livekit_token_ttl_seconds: int = Field(default=900, ge=60, le=86400)
+    voice_worker_token: str | None = None
+
     # --- AWS ---
     aws_region: str = "us-east-1"
     s3_bucket: str | None = None

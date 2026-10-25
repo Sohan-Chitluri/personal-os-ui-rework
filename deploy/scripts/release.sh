@@ -31,6 +31,7 @@ case "$COMMAND" in
     # with code rather than with AMIs (user_data fetches them at boot).
     aws s3 cp deploy/systemd/pos-api.service       "s3://${ARTIFACT_BUCKET}/deploy/systemd/pos-api.service"
     aws s3 cp deploy/systemd/pos-worker.service       "s3://${ARTIFACT_BUCKET}/deploy/systemd/pos-worker.service"
+    aws s3 cp deploy/systemd/pos-voice-worker.service "s3://${ARTIFACT_BUCKET}/deploy/systemd/pos-voice-worker.service"
     echo "Released ${VERSION} → s3://${ARTIFACT_BUCKET}/"
     ;;
 

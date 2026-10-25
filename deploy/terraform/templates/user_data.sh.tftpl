@@ -7,7 +7,7 @@ set -euo pipefail
 
 TOKEN="$(curl --fail --silent --show-error -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")"
 ROLE="$(curl --fail --silent --show-error -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/tags/instance/Role)"
-if [[ "$ROLE" != "api" && "$ROLE" != "worker" ]]; then
+if [[ "$ROLE" != "api" && "$ROLE" != "worker" && "$ROLE" != "voice-worker" ]]; then
   echo "Invalid EC2 Role instance tag: $ROLE" >&2
   exit 1
 fi
@@ -109,6 +109,9 @@ SQS_MAX_MESSAGES=1
 # TLS is enforced by the RDS parameter group (rds.force_ssl=1); the asyncpg
 # driver uses the system trust store for certificate verification.
 DATABASE_URL=postgresql+asyncpg://$${DB_USER}:$${DB_PASS_ENC}@${rds_endpoint}:5432/personalos?sslmode=require
+LIVEKIT_URL=${livekit_url}
+LIVEKIT_API_KEY=${livekit_api_key}
+LIVEKIT_API_SECRET=${livekit_api_secret}
 EOF
 install -d -m 0700 -o app -g app /opt/personal-os/.hermes
 cat << 'CONFIG_EOF' > /opt/personal-os/.hermes/config.yaml
@@ -134,6 +137,7 @@ chown root:app /etc/personal-os/env
 # alongside the wheel) so unit changes roll out with code, not with AMIs.
 aws s3 cp "s3://personal-os-${environment}-artifacts/deploy/systemd/pos-api.service" /etc/systemd/system/pos-api.service
 aws s3 cp "s3://personal-os-${environment}-artifacts/deploy/systemd/pos-worker.service" /etc/systemd/system/pos-worker.service
+aws s3 cp "s3://personal-os-${environment}-artifacts/deploy/systemd/pos-voice-worker.service" /etc/systemd/system/pos-voice-worker.service
 systemctl daemon-reload
 
 # --- CloudWatch agent (journald -> CloudWatch Logs, memory metrics) ----------
@@ -149,10 +153,13 @@ if [[ "$ROLE" == *api* ]]; then
   su -s /bin/bash app -c "cd /opt/personal-os && set -a && . /etc/personal-os/env && set +a && /opt/personal-os/.venv/bin/alembic -c /opt/personal-os/alembic.ini upgrade head"
   systemctl enable --now pos-api.service
 fi
-if [[ "$ROLE" == *worker* ]]; then
+if [[ "$ROLE" == *worker* && "$ROLE" != *voice-worker* ]]; then
   systemctl enable --now pos-worker.service
 fi
-if [[ "$ROLE" != "api" && "$ROLE" != "worker" ]]; then
+if [[ "$ROLE" == *voice-worker* ]]; then
+  systemctl enable --now pos-voice-worker.service
+fi
+if [[ "$ROLE" != "api" && "$ROLE" != "worker" && "$ROLE" != "voice-worker" ]]; then
   echo "Refusing to start a default service for role '$ROLE'" >&2
   exit 1
 fi

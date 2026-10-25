@@ -5,13 +5,13 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 echo "== ruff =="
-uv run ruff check src/personal_os/api src/personal_os/db src/personal_os/services src/personal_os/config.py src/personal_os/deploy_worker.py deploy/scripts/worker_heartbeat.py
+uv run ruff check src/personal_os/api src/personal_os/db src/personal_os/services src/personal_os/voice src/personal_os/config.py src/personal_os/deploy_worker.py src/personal_os/deploy_voice_worker.py deploy/scripts/worker_heartbeat.py
 
 echo "== mypy =="
-uv run mypy src/personal_os/api src/personal_os/db src/personal_os/services src/personal_os/config.py src/personal_os/deploy_worker.py
+uv run mypy src/personal_os/api src/personal_os/db src/personal_os/services src/personal_os/voice src/personal_os/config.py src/personal_os/deploy_worker.py src/personal_os/deploy_voice_worker.py
 
 echo "== tests =="
-uv run pytest tests/companion/ tests/protocol/ tests/test_smoke.py tests/test_extraction_resolver.py tests/test_extraction_validator.py -q
+uv run pytest tests/companion/ tests/protocol/ tests/test_smoke.py tests/test_extraction_resolver.py tests/test_extraction_validator.py tests/api/test_voice_token.py -q
 
 echo "== wheel =="
 BUILD_DIR="$(mktemp -d)"
@@ -26,6 +26,7 @@ import zipfile
 with zipfile.ZipFile(sys.argv[1]) as wheel:
     names = set(wheel.namelist())
     assert "personal_os/deploy_worker.py" in names, "worker entry point missing from wheel"
+    assert "personal_os/deploy_voice_worker.py" in names, "voice worker entry point missing from wheel"
 PY
 
 mkdir -p dist

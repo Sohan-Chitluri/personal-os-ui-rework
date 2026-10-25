@@ -23,6 +23,7 @@ from personal_os.api.routes import (
     raphael_router,
     sync_router,
     tasks_router,
+    voice_router,
 )
 from personal_os.config import Settings, get_settings
 from personal_os.db.session import adispose_engine, build_engine, build_session_factory
@@ -185,6 +186,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(devices_router)
     app.include_router(companion_ws_router)
     app.include_router(raphael_router)
+    app.include_router(voice_router)
     app.include_router(github_router)
 
     return app

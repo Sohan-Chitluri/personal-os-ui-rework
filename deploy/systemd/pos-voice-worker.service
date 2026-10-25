@@ -1,0 +1,39 @@
+# Personal OS — LiveKit Voice Agent Worker process definition
+#
+# One voice worker instance runs this unit. The worker connects to the LiveKit server
+# and accepts room assignments to bridge WebRTC user audio to Raphael conversation turns.
+#
+# Shutdown: SIGTERM triggers graceful disconnect from active rooms.
+
+[Unit]
+Description=Personal OS LiveKit Voice Worker
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=app
+Group=app
+WorkingDirectory=/opt/personal-os
+EnvironmentFile=/etc/personal-os/env
+
+ExecStart=/opt/personal-os/.venv/bin/python -m personal_os.deploy_voice_worker start
+
+KillSignal=SIGTERM
+TimeoutStopSec=60
+
+Restart=on-failure
+RestartSec=10
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=personal-os-voice-worker
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/personal-os
+
+[Install]
+WantedBy=multi-user.target

@@ -169,6 +169,51 @@ async def get_current_user(
             )
         return user
 
+    # 3. Voice agent session delegation token (signed internally for LiveKit worker turns)
+    delegation_secrets = [
+        s
+        for s in (
+            settings.companion_jwt_secret,
+            settings.livekit_api_secret,
+            "dev-delegation-secret" if local_mode else None,
+            settings.dev_auth_token if local_mode else None,
+        )
+        if s
+    ]
+    if "." in token:
+        for secret in delegation_secrets:
+            try:
+                del_claims = jwt.decode(
+                    token,
+                    secret,
+                    algorithms=["HS256"],
+                    options={"require": ["exp", "sub", "token_use"]},
+                )
+                if del_claims.get("token_use") == "voice_delegation":
+                    del_user: User | None = None
+                    if del_claims.get("user_id"):
+                        del_user = await user_repo.get(str(del_claims["user_id"]))
+                    if del_user is None:
+                        del_user = await user_repo.get_or_create_by_sub(
+                            str(del_claims["sub"]), del_claims.get("email")
+                        )
+                    if not del_user.is_active:
+                        raise HTTPException(
+                            status_code=status.HTTP_403_FORBIDDEN, detail="User account is inactive"
+                        )
+                    return del_user
+            except PyJWTError:
+                continue
+
+    # 4. Optional static voice worker token in local/test only
+    if local_mode and settings.voice_worker_token and token == settings.voice_worker_token:
+        user = await user_repo.get_or_create_by_sub("voice-worker", "voice-worker@local.test")
+        if not user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="User account is inactive"
+            )
+        return user
+
     try:
         claims = await asyncio.to_thread(verify_cognito_token, token, settings)
     except (PyJWTError, ValueError, TypeError) as exc:

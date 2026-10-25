@@ -245,6 +245,9 @@ locals {
     cognito_user_pool_id  = aws_cognito_user_pool.main.id
     cognito_app_client_id = aws_cognito_user_pool_client.frontend.id
     openrouter_secret_arn = aws_secretsmanager_secret.openrouter_api_key.arn
+    livekit_url           = var.livekit_url
+    livekit_api_key       = var.livekit_api_key
+    livekit_api_secret    = var.livekit_api_secret
   }))
 }
 

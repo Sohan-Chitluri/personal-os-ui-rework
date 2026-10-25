@@ -26,6 +26,14 @@ dependencies = [
     "uvicorn[standard]>=0.30",
     "PyJWT[crypto]>=2.8.0",
     "boto3>=1.34.0",
+    # --- LiveKit Voice Agent ---
+    "livekit>=1.1.20",
+    "livekit-api>=1.2.0",
+    "livekit-agents>=1.8.0",
+    "livekit-plugins-silero>=1.8.0",
+    "livekit-plugins-deepgram>=1.8.0",
+    "livekit-plugins-cartesia>=1.8.0",
+    "livekit-plugins-openai>=1.8.0",
 ]
 
 [project.optional-dependencies]
@@ -53,6 +61,7 @@ build-backend = "setuptools.build_meta"
 [project.scripts]
 pos = "personal_os.cli.main:app"
 pos-companion = "personal_os.companion.daemon:main"
+pos-voice-worker = "personal_os.deploy_voice_worker:main"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
