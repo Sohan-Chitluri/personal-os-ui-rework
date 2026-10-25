@@ -30,7 +30,89 @@ from personal_os.core.llm import LLMProvider, LLMProviderError
 
 log = logging.getLogger(__name__)
 
-_JSON_ARRAY_RE = re.compile(r'\[.*?\]', re.DOTALL)
+_JSON_ARRAY_RE = re.compile(r"\[[\s\S]*\]")
+
+
+def _parse_balanced_json_array(text: str) -> list[Any] | None:
+    """Parse JSON array using bracket balancing that respects quotes and escapes."""
+    text = text.strip()
+    if text.startswith("[") and text.endswith("]"):
+        try:
+            val = json.loads(text)
+            if isinstance(val, list):
+                return val
+        except json.JSONDecodeError:
+            pass
+
+    empty_fallback: list[Any] | None = None
+    in_string = False
+    escape = False
+    depth = 0
+    start = -1
+
+    for i, ch in enumerate(text):
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+
+        if ch == '"':
+            in_string = True
+            continue
+
+        if ch == "[":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "]":
+            if depth > 0:
+                depth -= 1
+                if depth == 0 and start != -1:
+                    candidate = text[start : i + 1]
+                    try:
+                        val = json.loads(candidate)
+                        if isinstance(val, list):
+                            if any(isinstance(x, dict) for x in val):
+                                return val
+                            if len(val) == 0:
+                                empty_fallback = val
+                    except json.JSONDecodeError:
+                        pass
+                    start = -1
+
+    return empty_fallback
+
+
+def _extract_json_array(content: str) -> list[Any] | None:
+    """Extract a JSON array from model output with fences, brackets, or explanatory text."""
+    # 1. Search inside Markdown code blocks
+    fence_pattern = re.compile(r"```(?:json)?\s*([\s\S]*?)\s*```")
+    for match in fence_pattern.finditer(content):
+        fenced_content = match.group(1).strip()
+        parsed = _parse_balanced_json_array(fenced_content)
+        if parsed is not None:
+            return parsed
+
+    # 2. Balanced bracket search in full content
+    balanced = _parse_balanced_json_array(content)
+    if balanced is not None:
+        return balanced
+
+    # 3. Fallback regex search for greedy JSON array
+    m = _JSON_ARRAY_RE.search(content)
+    if m:
+        try:
+            val = json.loads(m.group(0))
+            if isinstance(val, list):
+                return val
+        except json.JSONDecodeError:
+            pass
+
+    return None
 
 # certainty: the USER's expressed commitment/certainty (0.0=speculation, 1.0=definite).
 # This is NOT the model's confidence in its own extraction.
@@ -220,20 +302,9 @@ class OpenRouterProvider(LLMProvider):
         latency_ms: int = 0,
         tokens: dict | None = None,
     ) -> list[RawExtraction]:
-        content = content.strip()
-        if content.startswith("```"):
-            content = re.sub(r'^```[a-z]*\n?', '', content)
-            content = re.sub(r'\n?```$', '', content)
-
-        m = _JSON_ARRAY_RE.search(content)
-        if not m:
-            log.warning("OpenRouter returned no JSON array: %r", content[:200])
-            return []
-
-        try:
-            items: list[dict] = json.loads(m.group())
-        except json.JSONDecodeError as exc:
-            log.warning("OpenRouter JSON parse error: %s | raw=%r", exc, content[:200])
+        items = _extract_json_array(content)
+        if items is None:
+            log.warning("OpenRouter returned no parseable JSON array: %r", content[:200])
             return []
 
         if not isinstance(items, list):
@@ -242,9 +313,12 @@ class OpenRouterProvider(LLMProvider):
         meta = {"model": self._model, "latency_ms": latency_ms, **(tokens or {})}
         results: list[RawExtraction] = []
         for item in items:
+            if not isinstance(item, dict):
+                log.warning("Skipping non-dict extraction item: %r", item)
+                continue
             try:
                 results.append(self._item_to_extraction(item, meta))
-            except (KeyError, ValueError) as exc:
+            except (KeyError, ValueError, TypeError) as exc:
                 log.warning("Skipping malformed extraction item %r: %s", item, exc)
         return results
 
