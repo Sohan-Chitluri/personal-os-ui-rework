@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import uuid
@@ -277,10 +278,8 @@ class SqsCaptureQueue:
                     raise
 
         for stale in stale_buffered:
-            try:
+            with contextlib.suppress(ValueError):
                 self._buffer.remove(stale)
-            except ValueError:
-                pass
 
     async def close(self) -> None:
         self._closed = True

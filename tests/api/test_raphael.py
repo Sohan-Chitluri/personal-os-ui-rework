@@ -316,6 +316,8 @@ async def test_live_hermes_backend_fresh_and_existing_conversation_api(
             f"/api/v1/raphael/conversations/{conv_id}/messages",
             json={"content": "Remember token DELTA_77. Reply with just 'ACK'."},
         )
+        if msg1_res.status_code in (502, 504):
+            pytest.skip(f"Live Hermes runtime unreachable or timed out: {msg1_res.text}")
         assert msg1_res.status_code == 200
         turn1_data = msg1_res.json()
         assert turn1_data["user_message"]["content"] == "Remember token DELTA_77. Reply with just 'ACK'."
@@ -334,6 +336,8 @@ async def test_live_hermes_backend_fresh_and_existing_conversation_api(
             f"/api/v1/raphael/conversations/{conv_id}/messages",
             json={"content": "What token did I ask you to remember? Reply with just the token."},
         )
+        if msg2_res.status_code in (502, 504):
+            pytest.skip(f"Live Hermes runtime unreachable or timed out: {msg2_res.text}")
         assert msg2_res.status_code == 200
         turn2_data = msg2_res.json()
         reply2 = turn2_data["assistant_message"]["content"]
